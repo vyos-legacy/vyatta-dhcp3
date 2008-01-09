@@ -1,0 +1,19 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## common.dpatch by  <apollock@debian.org>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: No description.
+
+@DPATCH@
+diff -urNad dhcp3-3.0.2/common/packet.c /tmp/dpep.VE3BY9/dhcp3-3.0.2/common/packet.c
+--- dhcp3-3.0.2/common/packet.c	2004-11-25 04:39:16.000000000 +1100
++++ /tmp/dpep.VE3BY9/dhcp3-3.0.2/common/packet.c	2005-06-15 12:30:40.912588331 +1000
+@@ -147,7 +147,7 @@
+ 	ip.ip_len = htons(sizeof(ip) + sizeof(udp) + len);
+ 	ip.ip_id = 0;
+ 	ip.ip_off = 0;
+-	ip.ip_ttl = 16;
++	ip.ip_ttl = IPDEFTTL;
+ 	ip.ip_p = IPPROTO_UDP;
+ 	ip.ip_sum = 0;
+ 	ip.ip_src.s_addr = from;

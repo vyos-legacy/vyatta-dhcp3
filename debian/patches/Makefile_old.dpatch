@@ -1,0 +1,88 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## Makefile.dpatch by  <apollock@debian.org>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: No description.
+
+@DPATCH@
+diff -urNad dhcp3-3.0.2/client/Makefile.dist /tmp/dpep.mSPLvk/dhcp3-3.0.2/client/Makefile.dist
+--- dhcp3-3.0.2/client/Makefile.dist	2004-06-11 03:59:11.000000000 +1000
++++ /tmp/dpep.mSPLvk/dhcp3-3.0.2/client/Makefile.dist	2005-06-15 12:34:11.273305767 +1000
+@@ -55,8 +55,8 @@
+ 	  echo "No client script available."; \
+ 	else \
+ 	  $(INSTALL) $(TOP)/client/scripts/$(SCRIPT)\
+-				$(DESTDIR)$(CLIENTBINDIR)/dhclient-script; \
+-	  $(CHMOD) 700 $(DESTDIR)$(CLIENTBINDIR)/dhclient-script; \
++					$(DESTDIR)$(ETC)/dhclient-script; \
++	  $(CHMOD) 700 $(DESTDIR)$(ETC)/dhclient-script; \
+ 	fi
+ 	$(MANINSTALL) $(MANFROM) dhclient.$(MANCAT)8 $(MANTO) \
+ 			$(DESTDIR)$(ADMMANDIR)/dhclient$(ADMMANEXT)
+@@ -96,7 +96,6 @@
+ 
+ dhclient.man8: dhclient.8
+ 	sed -e "s#ETCDIR#$(ETC)#g" -e "s#DBDIR#$(VARDB)#g" \
+-		-e "s#CLIENTBINDIR#$(CLIENTBINDIR)#g" \
+ 		-e "s#RUNDIR#$(VARRUN)#g" < dhclient.8 >dhclient.man8
+ 
+ dhclient-script.cat8:	dhclient-script.man8
+@@ -104,13 +103,11 @@
+ 
+ dhclient-script.man8:	dhclient-script.8
+ 	sed -e "s#ETCDIR#$(ETC)#g" -e "s#DBDIR#$(VARDB)#g" \
+-		-e "s#CLIENTBINDIR#$(CLIENTBINDIR)#g" \
+ 		-e "s#RUNDIR#$(VARRUN)#g" < dhclient-script.8 \
+ 						>dhclient-script.man8
+ 
+ dhclient.conf.man5:	dhclient.conf.5
+ 	sed -e "s#ETCDIR#$(ETC)#g" -e "s#DBDIR#$(VARDB)#g" \
+-		-e "s#CLIENTBINDIR#$(CLIENTBINDIR)#g" \
+ 		-e "s#RUNDIR#$(VARRUN)#g" < dhclient.conf.5 \
+ 						>dhclient.conf.man5
+ 
+@@ -119,7 +116,6 @@
+ 
+ dhclient.leases.man5:	dhclient.leases.5
+ 	sed -e "s#ETCDIR#$(ETC)#g" -e "s#DBDIR#$(VARDB)#g" \
+-		-e "s#CLIENTBINDIR#$(CLIENTBINDIR)#g" \
+ 		-e "s#RUNDIR#$(VARRUN)#g" < dhclient.leases.5 \
+ 						>dhclient.leases.man5
+ 
+diff -urNad dhcp3-3.0.2/Makefile.conf /tmp/dpep.mSPLvk/dhcp3-3.0.2/Makefile.conf
+--- dhcp3-3.0.2/Makefile.conf	2004-11-25 04:39:13.000000000 +1100
++++ /tmp/dpep.mSPLvk/dhcp3-3.0.2/Makefile.conf	2005-06-15 12:34:11.272305877 +1000
+@@ -42,8 +42,8 @@
+ ETC = /etc
+ VARRUN = /var/run
+ VARDB = /var/db
+-LIBDIR=/usr/local/lib
+-INCDIR=/usr/local/include
++LIBDIR=/usr/lib
++INCDIR=/usr/include
+ LIBS =
+ COPTS = $(BINDDEF) $(CC_OPTIONS)
+ DEBUG = -g
+@@ -314,17 +314,17 @@
+ #COPTS = -DLINUX_MAJOR=$(MAJORVERSION) -DLINUX_MINOR=$(MINORVERSION) \
+ #        $(BINDDEF) $(CC_OPTIONS)
+ #CF = cf/linux.h
+-#ADMMANDIR = /usr/man/man8
++#ADMMANDIR = /usr/share/man/man8
+ #ADMMANEXT = .8
+-#FFMANDIR = /usr/man/man5
++#FFMANDIR = /usr/share/man/man5
+ #FFMANEXT = .5
+-#LIBMANDIR = /usr/man/man3
++#LIBMANDIR = /usr/share/man/man3
+ #LIBMANEXT = .3
+-#USRMANDIR = /usr/man/man1
++#USRMANDIR = /usr/share/man/man1
+ #USRMANEXT = .1
+ #MANCAT = man
+ #VARRUN = /var/run
+-#VARDB = /var/state/dhcp
++#VARDB = /var/lib/dhcp
+ #SCRIPT=linux
+ ##--linux-2.2--
+ 

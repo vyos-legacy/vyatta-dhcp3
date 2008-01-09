@@ -1,0 +1,6 @@
+etc/dhcp3/dhclient-enter-hooks.d
+etc/dhcp3/dhclient-exit-hooks.d
+var/run
+var/lib/dhcp3
+usr/share/man/man5
+usr/share/lintian/overrides

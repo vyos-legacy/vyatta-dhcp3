@@ -1,0 +1,18 @@
+#! /bin/sh /usr/share/dpatch/dpatch-run
+## dhcpd-chdir.dpatch by  <apollock@debian.org>
+##
+## All lines beginning with `## DP:' are a description of the patch.
+## DP: Changes to the root directory, not quite sure why...
+
+@DPATCH@
+diff -urNad dhcp3-3.0.2/server/dhcpd.c /tmp/dpep.TYNBpe/dhcp3-3.0.2/server/dhcpd.c
+--- dhcp3-3.0.2/server/dhcpd.c	2004-09-30 09:01:50.000000000 +1000
++++ /tmp/dpep.TYNBpe/dhcp3-3.0.2/server/dhcpd.c	2005-06-15 12:47:00.719144085 +1000
+@@ -569,6 +569,7 @@
+ 
+ 	if (daemon) {
+ 		/* Become session leader and get pid... */
++		chdir("/");
+ 		close (0);
+ 		close (1);
+ 		close (2);

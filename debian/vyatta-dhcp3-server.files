@@ -1,0 +1,5 @@
+usr/share/man/man5/dhcpd.conf.5
+usr/share/man/man5/dhcpd.leases.5
+usr/share/man/man8/dhcpd3.8
+usr/sbin/dhcpd3
+etc/dhcp3/dhcpd.conf

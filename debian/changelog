@@ -1,0 +1,6 @@
+vyatta-dhcp3 (3.0.6.dfsg-1) unstable; urgency=low
+
+  * Initial commit, knock-off of Debian package dhcp3
+
+ -- Marat Nepomnyashy <marat@vyatta.com>  Tue, 08 Jan 2008 17:18:18 -0700
+
