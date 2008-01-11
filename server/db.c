@@ -111,6 +111,10 @@ int write_lease (lease)
 		}
 	}
 
+	//vyatta--second attempt
+	if (lease->subnet && lease->subnet->shared_network && lease->subnet->shared_network->name)
+	  fprintf(db_file, "\n#shared-network: %s", lease->subnet->shared_network->name);
+
 	if (lease -> tstp) {
 		t = gmtime (&lease -> tstp);
 		errno = 0;
