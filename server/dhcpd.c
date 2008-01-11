@@ -569,6 +569,7 @@ int main (argc, argv, envp)
 
 	if (daemon) {
 		/* Become session leader and get pid... */
+		chdir("/");
 		close (0);
 		close (1);
 		close (2);
@@ -753,6 +754,13 @@ void postconf_initialization (int quiet)
 		data_string_forget (&db, MDL);
 	}
 
+	/*
+		On Debian we default to 'ddns-update-style none' so we do not
+		break upgrades from the version 2 DHCP server. If we do not
+		default to something dhcpd will refuse to start in the absence
+		of the ddns-update-style statement - peloy@debian.org
+	*/
+	ddns_update_style = 0;
 	oc = lookup_option (&server_universe, options, SV_DDNS_UPDATE_STYLE);
 	if (oc) {
 		if (evaluate_option_cache (&db, (struct packet *)0,
@@ -767,16 +775,6 @@ void postconf_initialization (int quiet)
 				log_fatal ("invalid dns update type");
 			data_string_forget (&db, MDL);
 		}
-	} else {
-		log_info ("%s", "");
-		log_error ("** You must add a global ddns-update-style %s%s.",
-			   "statement to ", path_dhcpd_conf);
-		log_error ("   To get the same behaviour as in 3.0b2pl11 %s",
-			   "and previous");
-		log_error ("   versions, add a line that says \"%s\"",
-			   "ddns-update-style ad-hoc;");
-		log_fatal ("   Please read the dhcpd.conf manual page %s",
-			   "for more information. **");
 	}
 
 	oc = lookup_option (&server_universe, options, SV_LOG_FACILITY);

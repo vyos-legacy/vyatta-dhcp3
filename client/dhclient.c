@@ -102,6 +102,7 @@ int main (argc, argv, envp)
 	int no_dhclient_script = 0;
 	char *s;
 
+	chdir("/");
 	/* Make sure we have stdin, stdout and stderr. */
 	i = open ("/dev/null", O_RDWR);
 	if (i == 0)
@@ -241,7 +242,7 @@ int main (argc, argv, envp)
 	}
 
 	/* first kill of any currently running client */
-	if (release_mode) {
+	if (1) {
 		FILE *pidfd;
 		pid_t oldpid;
 		long temp;
@@ -251,11 +252,17 @@ int main (argc, argv, envp)
 		if ((pidfd = fopen(path_dhclient_pid, "r")) != NULL) {
 			e = fscanf(pidfd, "%ld\n", &temp);
 			oldpid = (pid_t)temp;
+                        log_info ("There is already a pid file %s with pid %i", path_dhclient_pid, oldpid);
 
 			if (e != 0 && e != EOF) {
 				if (oldpid) {
-					if (kill(oldpid, SIGTERM) == 0)
-						unlink(path_dhclient_pid);
+					if (kill(oldpid, SIGTERM) == 0) {
+                                                log_info ("killed old client process, removed PID file");
+                                                unlink(path_dhclient_pid);
+                                        } else if (errno == ESRCH) {
+                                                log_info ("removed stale PID file");
+                                                unlink(path_dhclient_pid);
+                                        }
 				}
 			}
 			fclose(pidfd);
@@ -867,7 +874,7 @@ void bind_lease (client)
 	/* If the BOUND/RENEW code detects another machine using the
 	   offered address, it exits nonzero.  We need to send a
 	   DHCPDECLINE and toss the lease. */
-	if (script_go (client)) {
+	if (script_go (client) == 2) {
 		make_decline (client, client -> new);
 		send_decline (client);
 		destroy_client_lease (client -> new);
