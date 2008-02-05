@@ -26,9 +26,9 @@ case "$1" in
 		fi
 	fi
 
-	if [ -e /etc/dhcp3/dhclient.conf.oldconfig ]; then
-		mv /etc/dhcp3/dhclient.conf.oldconfig /etc/dhcp3/dhclient.conf
-	fi
+#	if [ -e /etc/dhcp3/dhclient.conf.oldconfig ]; then
+#		mv /etc/dhcp3/dhclient.conf.oldconfig /etc/dhcp3/dhclient.conf
+#	fi
 
         ;;
 
