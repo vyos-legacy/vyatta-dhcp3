@@ -1,3 +1,10 @@
+vyatta-dhcp3 (3.0.6.dfsg-8) unstable; urgency=low
+
+  3.0.4
+
+
+ -- Mark O'Brien <mobrien@vyatta.com>  Mon, 05 May 2008 16:40:42 -0700
+
 vyatta-dhcp3 (3.0.6.dfsg-7) unstable; urgency=low
 
   3.0.3
