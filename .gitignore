@@ -16,7 +16,12 @@ debian/vyatta-dhcp3-relay
 debian/vyatta-dhcp3-server.postrm.debhelper
 debian/vyatta-dhcp3-server.substvars
 debian/vyatta-dhcp3-server
+debian/vyatta-dhcp3-client-udeb.debhelper.log
+debian/vyatta-dhcp3-client.debhelper.log
+debian/vyatta-dhcp3-common.debhelper.log
+debian/vyatta-dhcp3-dev.debhelper.log
+debian/vyatta-dhcp3-relay.debhelper.log
+debian/vyatta-dhcp3-server.debhelper.log
 install-stamp
 patch-stamp
 work.linux-2.2
-
