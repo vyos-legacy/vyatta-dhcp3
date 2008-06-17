@@ -1,3 +1,19 @@
+vyatta-dhcp3 (3.0.6.dfsg-10) unstable; urgency=low
+
+	  3.1.0
+  [ Mark O'Brien ]
+
+
+  [ rbalocca ]
+  * Ignore derived files
+
+  [ Tom Grennan ]
+  * remove debconf messages that stall installation
+
+  [ Mark O'Brien ]
+
+ -- Mark O'Brien <mobrien@firebolt.vyatta.com>  Tue, 17 Jun 2008 09:26:42 -0700
+
 vyatta-dhcp3 (3.0.6.dfsg-9) unstable; urgency=low
 
   3.0.5
