@@ -218,6 +218,8 @@ case "$reason" in
             route add -host $alias_ip_address $interface:0
         fi
 
+	make_resolv_conf
+
         ;;
 
     TIMEOUT)
