@@ -13,6 +13,8 @@
 # The alias handling in here probably still sucks. -mdz
 
 # Modified by Mohit Mehta - Vyatta Inc.
+# code to update resolv.conf and routers received from dhcp-server has been modified for Vyatta
+# code handling alias IP hasn't been dealt with as it is not used by Vyatta
 
 #make_resolv_conf() {
 #    if [ -n "$new_domain_name" -o -n "$new_domain_name_servers" ]; then
@@ -55,6 +57,50 @@ make_resolv_conf() {
         echo " " > $new_resolv_conf
         sudo /opt/vyatta/sbin/vyatta_update_resolv.pl --dhclient-script 1
     fi
+}
+
+# this function is used to update routers received from dhcp-server for Vyatta
+update_routers() {
+      if [ -n "$new_routers" ]; then
+         # for each of these routers, check if they exist in the temp-interface file
+         # if not then add them to the temp file and add the route using quagga
+            for router in $new_routers; do
+                 if ! grep -q $router /etc/dhclient-script-router-$interface; then
+                   echo $router >> /etc/dhclient-script-router-$interface
+                   /opt/vyatta/sbin/vyatta-vtysh.pl -c "conf t" -c "ip route 0.0.0.0/0 $router 2"
+                 fi
+            done
+          # now remove extraneous routers that might have been received in the previuos reponse from dhcp-server
+            local router_array=( `cat /etc/dhclient-script-router-$interface | tr '\n' ' '` )
+            local router_array_len=${#router_array[*]}
+            local i=0
+            while [ $i -lt $router_array_len ]; do
+                  local found_in_new=0
+                  for router in $new_routers; do
+                      if [ "${router_array[$i]}" == "$router" ] ; then
+                          found_in_new=1
+                      fi
+                  done
+                  if [ $found_in_new == 0 ] ; then
+                     /opt/vyatta/sbin/vyatta-vtysh.pl -c "conf t" -c "no ip route 0.0.0.0/0 ${router_array[$i]}"
+                     sed -i "/${router_array[$i]}/d" /etc/dhclient-script-router-$interface
+                  fi
+                  let i++
+            done
+      else
+            # check if the temp file exists, if yes then
+            # remove all routes and delete the temp file
+            if [ -f /etc/dhclient-script-router-$interface ]; then
+               local all_router_array=( `cat /etc/dhclient-script-router-$interface | tr '\n' ' '` )
+               local all_router_array_len=${#all_router_array[*]}
+               local j=0
+               while [ $j -lt $all_router_array_len ]; do
+                     /opt/vyatta/sbin/vyatta-vtysh.pl -c "conf t" -c "no ip route 0.0.0.0/0 ${all_router_array[$j]}"
+                     let j++
+               done
+               rm -f /etc/dhclient-script-router-$interface
+            fi
+      fi
 }
 
 run_hook() {
@@ -186,9 +232,10 @@ case "$reason" in
             ifconfig $interface inet $new_ip_address $new_subnet_arg \
                 $new_broadcast_arg $mtu_arg
 
-            for router in $new_routers; do
-                route add default dev $interface gw $router $metric_arg
-            done
+# code commented below is handled by update_routers now
+#            for router in $new_routers; do
+#                route add default dev $interface gw $router $metric_arg
+#            done
         fi
 
         if [ "$new_ip_address" != "$alias_ip_address" -a -n "$alias_ip_address" ];
@@ -199,6 +246,8 @@ case "$reason" in
         fi
 
         make_resolv_conf
+
+        update_routers
 
         ;;
 
@@ -220,6 +269,8 @@ case "$reason" in
 
 	make_resolv_conf
 
+        update_routers
+
         ;;
 
     TIMEOUT)
@@ -239,19 +290,24 @@ case "$reason" in
                 ifconfig $interface:0 inet $alias_ip_address $alias_subnet_arg
                 route add -host $alias_ip_address dev $interface:0
             fi
-	    
-	    # point to point
-	    if [ "$new_subnet_mask" == "255.255.255.255" ]; then
-	    	for router in $new_routers; do
-	    	    route add -host $router dev $interface
-	    	done
-	    fi
 
-            for router in $new_routers; do
-                route add default dev $interface gw $router $metric_arg
-            done
+# commenting this part out, this should probably be handled by the call to update_routers below
+	    # point to point
+#	    if [ "$new_subnet_mask" == "255.255.255.255" ]; then
+#	    	for router in $new_routers; do
+#	    	    route add -host $router dev $interface
+#	    	done
+#	    fi
+
+# code commented below is handled by update_routers now
+#            for router in $new_routers; do
+#                route add default dev $interface gw $router $metric_arg
+#            done
 
             make_resolv_conf
+
+            update_routers
+
         else
             # Changed from 'ifconfig $interface inet 0 down' - see Debian bug #144666
             ifconfig $interface inet 0
