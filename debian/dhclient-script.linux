@@ -62,16 +62,19 @@ make_resolv_conf() {
 # this function is used to update routers received from dhcp-server for Vyatta
 update_routers() {
       if [ -n "$new_routers" ]; then
+         if [ ! -d /var/run/vyatta/dhclient ]; then
+             mkdir /var/run/vyatta/dhclient
+         fi
          # for each of these routers, check if they exist in the temp-interface file
          # if not then add them to the temp file and add the route using quagga
             for router in $new_routers; do
-                 if ! grep -q $router /etc/dhclient-script-router-$interface; then
-                   echo $router >> /etc/dhclient-script-router-$interface
+                 if ! grep -q $router /var/run/vyatta/dhclient/dhclient-script-router-$interface; then
+                   echo $router >> /var/run/vyatta/dhclient/dhclient-script-router-$interface
                    /opt/vyatta/sbin/vyatta-vtysh.pl -c "conf t" -c "ip route 0.0.0.0/0 $router 2"
                  fi
             done
           # now remove extraneous routers that might have been received in the previuos reponse from dhcp-server
-            local router_array=( `cat /etc/dhclient-script-router-$interface | tr '\n' ' '` )
+            local router_array=( `cat /var/run/vyatta/dhclient/dhclient-script-router-$interface | tr '\n' ' '` )
             local router_array_len=${#router_array[*]}
             local i=0
             while [ $i -lt $router_array_len ]; do
@@ -83,22 +86,22 @@ update_routers() {
                   done
                   if [ $found_in_new == 0 ] ; then
                      /opt/vyatta/sbin/vyatta-vtysh.pl -c "conf t" -c "no ip route 0.0.0.0/0 ${router_array[$i]}"
-                     sed -i "/${router_array[$i]}/d" /etc/dhclient-script-router-$interface
+                     sed -i "/${router_array[$i]}/d" /var/run/vyatta/dhclient/dhclient-script-router-$interface
                   fi
                   let i++
             done
       else
             # check if the temp file exists, if yes then
             # remove all routes and delete the temp file
-            if [ -f /etc/dhclient-script-router-$interface ]; then
-               local all_router_array=( `cat /etc/dhclient-script-router-$interface | tr '\n' ' '` )
+            if [ -f /var/run/vyatta/dhclient/dhclient-script-router-$interface ]; then
+               local all_router_array=( `cat /var/run/vyatta/dhclient/dhclient-script-router-$interface | tr '\n' ' '` )
                local all_router_array_len=${#all_router_array[*]}
                local j=0
                while [ $j -lt $all_router_array_len ]; do
                      /opt/vyatta/sbin/vyatta-vtysh.pl -c "conf t" -c "no ip route 0.0.0.0/0 ${all_router_array[$j]}"
                      let j++
                done
-               rm -f /etc/dhclient-script-router-$interface
+               rm -f /var/run/vyatta/dhclient/dhclient-script-router-$interface
             fi
       fi
 }
