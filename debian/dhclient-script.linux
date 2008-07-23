@@ -176,7 +176,13 @@ if [ -n "$alias_subnet_mask" ]; then
     alias_subnet_arg="netmask $alias_subnet_mask"
 fi
 if [ -n "$new_interface_mtu" ] && [ $new_interface_mtu -ge 575 ]; then
-    mtu_arg="mtu $new_interface_mtu"
+   if [ -f /tmp/dhclient_mtu_check_$interface ]; then 
+      # get the interface mtu set in CLI and set it to mtu_arg
+      local system_interface_mtu=( `cat /tmp/dhclient_mtu_check_$interface | tr '\n' ' '` )
+      mtu_arg="mtu ${system_interface_mtu[0]}"
+   else
+      mtu_arg="mtu $new_interface_mtu"
+   fi
 fi
 if [ -n "$IF_METRIC" ]; then
     metric_arg="metric $IF_METRIC"	# interfaces(5), "metric" option
@@ -259,7 +265,12 @@ case "$reason" in
 
         if [ -n "$old_ip_address" ]; then
             # Shut down interface, which will delete routes and clear arp cache.
-            ifconfig $interface inet 0
+            # if mtu not set in CLI, then set mtu to 1500
+            if [ -f /tmp/dhclient_mtu_check_$interface ]; then
+               ifconfig $interface inet 0
+            else 
+               ifconfig $interface inet 0 mtu 1500
+            fi
         fi
 
         if [ -n "$alias_ip_address" ]; then
