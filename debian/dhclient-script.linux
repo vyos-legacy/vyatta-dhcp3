@@ -176,9 +176,9 @@ if [ -n "$alias_subnet_mask" ]; then
     alias_subnet_arg="netmask $alias_subnet_mask"
 fi
 if [ -n "$new_interface_mtu" ] && [ $new_interface_mtu -ge 575 ]; then
-   if [ -f /tmp/dhclient_mtu_check_$interface ]; then 
+   if [ -f /opt/vyatta/config/active/interfaces/ethernet/$interface/mtu/node.val ]; then 
       # get the interface mtu set in CLI and set it to mtu_arg
-      local system_interface_mtu=( `cat /tmp/dhclient_mtu_check_$interface | tr '\n' ' '` )
+      local system_interface_mtu=( `cat /opt/vyatta/config/active/interfaces/ethernet/$interface/mtu/node.val | tr '\n' ' '` )
       mtu_arg="mtu ${system_interface_mtu[0]}"
    else
       mtu_arg="mtu $new_interface_mtu"
@@ -266,7 +266,7 @@ case "$reason" in
         if [ -n "$old_ip_address" ]; then
             # Shut down interface, which will delete routes and clear arp cache.
             # if mtu not set in CLI, then set mtu to 1500
-            if [ -f /tmp/dhclient_mtu_check_$interface ]; then
+            if [ -f /opt/vyatta/config/active/interfaces/ethernet/$interface/mtu/node.val ]; then
                ifconfig $interface inet 0
             else 
                ifconfig $interface inet 0 mtu 1500
