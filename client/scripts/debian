@@ -39,30 +39,27 @@
 # modified make_resolv_conf () for Vyatta system below
 make_resolv_conf() {
     local new_resolv_conf="/etc/resolv.conf.dhclient-new-$interface"
+    local old_resolv_conf="/etc/resolv.conf.dhclient-old-$interface"
+    mv -f $new_resolv_conf $old_resolv_conf
     if [ -n "$new_domain_name" -o -n "$new_domain_name_servers" ]; then
-        local old_resolv_conf="/etc/resolv.conf.dhclient-old-$interface"
-        mv -f $new_resolv_conf $old_resolv_conf
         if [ -n "$new_domain_name" ]; then
             echo search $new_domain_name >>$new_resolv_conf
         fi
         if [ -n "$new_domain_name_servers" ]; then
-                   for nameserver in $new_domain_name_servers; do
-                       echo nameserver $nameserver >>$new_resolv_conf
+            for nameserver in $new_domain_name_servers; do
+                echo nameserver $nameserver >>$new_resolv_conf
             done
         fi
-        rm -f $old_resolv_conf
-        sudo /opt/vyatta/sbin/vyatta_update_resolv.pl --dhclient-script 1
-        if [ -d /opt/vyatta/config/active/service/dns/forwarding ]; then
-            sudo /opt/vyatta/sbin/vyatta-dns-forwarding.pl --update-dnsforwarding --dhclient-script >&/dev/null
-        fi
     else
-        rm -f $new_resolv_conf
         echo " " > $new_resolv_conf
-        sudo /opt/vyatta/sbin/vyatta_update_resolv.pl --dhclient-script 1
-        if [ -d /opt/vyatta/config/active/service/dns/forwarding ]; then
-            sudo /opt/vyatta/sbin/vyatta-dns-forwarding.pl --update-dnsforwarding --dhclient-script >&/dev/null
-        fi
     fi
+    if ! diff -q $old_resolv_conf $new_resolv_conf >&/dev/null; then
+       sudo /opt/vyatta/sbin/vyatta_update_resolv.pl --dhclient-script 1
+       if [ -d /opt/vyatta/config/active/service/dns/forwarding ]; then
+          sudo /opt/vyatta/sbin/vyatta-dns-forwarding.pl --update-dnsforwarding --dhclient-script >&/dev/null
+       fi
+    fi
+    rm -f $old_resolv_conf
 }
 
 # this function is used to update routers received from dhcp-server for Vyatta
