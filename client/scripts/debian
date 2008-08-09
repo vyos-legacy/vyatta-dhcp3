@@ -71,7 +71,7 @@ update_routers() {
          # for each of these routers, check if they exist in the temp-interface file
          # if not then add them to the temp file and add the route using quagga
             for router in $new_routers; do
-                 if ! grep -q $router /var/run/vyatta/dhclient/dhclient-script-router-$interface; then
+                 if ! grep -q "$router$" /var/run/vyatta/dhclient/dhclient-script-router-$interface; then
                    echo $router >> /var/run/vyatta/dhclient/dhclient-script-router-$interface
                    vyatta-vtysh -c "conf t" -c "ip route 0.0.0.0/0 $router 2"
                  fi
@@ -89,7 +89,7 @@ update_routers() {
                   done
                   if [ $found_in_new == 0 ] ; then
                      vyatta-vtysh -c "conf t" -c "no ip route 0.0.0.0/0 ${router_array[$i]}"
-                     sed -i "/${router_array[$i]}/d" /var/run/vyatta/dhclient/dhclient-script-router-$interface
+                     sed -i "/${router_array[$i]}$/d" /var/run/vyatta/dhclient/dhclient-script-router-$interface
                   fi
                   let i++
             done
