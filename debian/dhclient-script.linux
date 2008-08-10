@@ -53,8 +53,8 @@ make_resolv_conf() {
     else
         echo " " > $new_resolv_conf
     fi
+    sudo /opt/vyatta/sbin/vyatta_update_resolv.pl --dhclient-script 1
     if ! diff -q $old_resolv_conf $new_resolv_conf >&/dev/null; then
-       sudo /opt/vyatta/sbin/vyatta_update_resolv.pl --dhclient-script 1
        if [ -d /opt/vyatta/config/active/service/dns/forwarding ]; then
           sudo /opt/vyatta/sbin/vyatta-dns-forwarding.pl --update-dnsforwarding --dhclient-script >&/dev/null
        fi
