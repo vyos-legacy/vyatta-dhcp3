@@ -70,7 +70,7 @@ update_routers() {
             for router in $new_routers; do
                  if ! grep -q $router /var/run/vyatta/dhclient/dhclient-script-router-$interface; then
                    echo $router >> /var/run/vyatta/dhclient/dhclient-script-router-$interface
-                   /opt/vyatta/sbin/vyatta-vtysh.pl -c "conf t" -c "ip route 0.0.0.0/0 $router 2"
+                   vyatta-vtysh -c "conf t" -c "ip route 0.0.0.0/0 $router 2"
                  fi
             done
           # now remove extraneous routers that might have been received in the previuos reponse from dhcp-server
@@ -85,7 +85,7 @@ update_routers() {
                       fi
                   done
                   if [ $found_in_new == 0 ] ; then
-                     /opt/vyatta/sbin/vyatta-vtysh.pl -c "conf t" -c "no ip route 0.0.0.0/0 ${router_array[$i]}"
+                     vyatta-vtysh -c "conf t" -c "no ip route 0.0.0.0/0 ${router_array[$i]}"
                      sed -i "/${router_array[$i]}/d" /var/run/vyatta/dhclient/dhclient-script-router-$interface
                   fi
                   let i++
@@ -98,7 +98,7 @@ update_routers() {
                local all_router_array_len=${#all_router_array[*]}
                local j=0
                while [ $j -lt $all_router_array_len ]; do
-                     /opt/vyatta/sbin/vyatta-vtysh.pl -c "conf t" -c "no ip route 0.0.0.0/0 ${all_router_array[$j]}"
+                     vyatta-vtysh -c "conf t" -c "no ip route 0.0.0.0/0 ${all_router_array[$j]}"
                      let j++
                done
                rm -f /var/run/vyatta/dhclient/dhclient-script-router-$interface
