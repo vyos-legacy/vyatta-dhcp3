@@ -10,7 +10,7 @@ Package: vyatta-dhcp3-server
 Priority: optional
 Architecture: any
 Depends: debianutils (>= 2.8.2),
- vyatta-dhcp3-common (= ${Source-Version}),
+ vyatta-dhcp3-common (= ${binary:Version}),
  ${shlibs:Depends},
  ${misc:Depends}
 Conflicts: dhcp, dhcp3-server
@@ -50,7 +50,7 @@ Description: Vyattanized API for accessing and modifying the DHCP server and cli
 Package: vyatta-dhcp3-client
 Architecture: any
 Depends: debianutils (>= 2.8.2),
- vyatta-dhcp3-common (= ${Source-Version}),
+ vyatta-dhcp3-common (= ${binary:Version}),
  ${shlibs:Depends},
  ${misc:Depends}
 Suggests: resolvconf, avahi-autoipd
@@ -84,7 +84,7 @@ Package: vyatta-dhcp3-relay
 Priority: optional
 Architecture: any
 Depends: debianutils (>= 2.8.2),
- vyatta-dhcp3-common (= ${Source-Version}),
+ vyatta-dhcp3-common (= ${binary:Version}),
  ${shlibs:Depends},
  ${misc:Depends}
 Conflicts: dhcp-relay, dhcp3-relay
