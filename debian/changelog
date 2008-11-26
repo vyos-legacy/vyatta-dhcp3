@@ -1,3 +1,35 @@
+vyatta-dhcp3 (3.0.6.dfsg-13) unstable; urgency=low
+
+	  3.2.0
+  [ Mark O'Brien ]
+
+
+  [ Mohit Mehta ]
+  * use outside-cli as argument to dns-forwarding script instead of
+    dhclient_script
+  * update /etc/resolv.conf each time there's a dhcp lease action
+  * tighten checks for existence/removal of routes received from dhcp-
+    server
+  * update domain name paramters receieved from dhcp-server only when
+    different from last update
+  * update dns forwarding nameservers on dhcp lease update
+
+  [ Stephen Hemminger ]
+  * Replace perl wrapper with vyatta-vtysh
+  * Revert "Replace vyatta-vtysh.pl with vtysh"
+  * Replace vyatta-vtysh.pl with vtysh
+
+  [ Mohit Mehta ]
+  * Fix Bug 3524 dhcp client doesn't insert default route on system
+    reboot
+  * Fix bug 3318
+  * Fix Bug 3318 ENHANCEMENT REQUEST: Option to NOT Accept DHCP MTU
+    Offers Below Specified Value
+
+  [ Mark O'Brien ]
+
+ -- Mark O'Brien <mobrien@firebolt.vyatta.com>  Tue, 25 Nov 2008 19:09:43 -0800
+
 vyatta-dhcp3 (3.0.6.dfsg-12) unstable; urgency=low
 
 	  3.1.3
