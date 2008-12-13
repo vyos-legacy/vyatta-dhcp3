@@ -165,6 +165,7 @@ PRIORITY=$(shell grep ^Priority: debian/control | cut -d ' ' -f 2)
 # Build architecture-dependent files here (this package does not contain
 #	architecture-independent files).
 binary-arch: build install
+	rm -f debian/files
 #	dh_testversion
 	dh_testdir -a
 	dh_testroot -a
