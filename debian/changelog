@@ -1,3 +1,12 @@
+vyatta-dhcp3 (3.0.6.dfsg-14) unstable; urgency=low
+
+  * add support for development build
+  * correct version dependency in control
+  * update maintainer information
+  * "files" file should be removed before package build
+
+ -- An-Cheng Huang <ancheng@vyatta.com>  Wed, 07 Jan 2009 19:33:38 -0800
+
 vyatta-dhcp3 (3.0.6.dfsg-13) unstable; urgency=low
 
 	  3.2.0
