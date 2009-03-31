@@ -1,3 +1,10 @@
+vyatta-dhcp3 (3.0.6.dfsg-15) unstable; urgency=low
+
+  * Fix router update logic
+  * Fix dhcp client route management
+
+ -- Stephen Hemminger <stephen.hemminger@vyatta.com>  Tue, 31 Mar 2009 16:50:32 -0700
+
 vyatta-dhcp3 (3.0.6.dfsg-14) unstable; urgency=low
 
   * add support for development build
