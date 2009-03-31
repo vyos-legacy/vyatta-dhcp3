@@ -62,33 +62,44 @@ make_resolv_conf() {
     rm -f $old_resolv_conf
 }
 
-
 # this function is used to update routers received from dhcp-server for Vyatta
 update_routers() {
-    local old_list=/var/run/vyatta/dhclient/dhclient-script-router-${interface}
-    local new_list=/var/run/vyatta/dhclient/dhclient-script-router-${interface}.$$
+    local i, found
+    local -a old_route=( `ip ro sh dev $interface proto dhcp | awk '{ print $3'` )
 
     [ -d /var/run/vyatta/dhclient ] ||  mkdir /var/run/vyatta/dhclient
 
-# for each of these routers, check if they exist in the temp-interface file
-# if not then add them to the temp file and add the route using quagga
-    for router in $new_routers; do
-        if ! grep -x -q "$router" $old_list; then
-	    ip route add to default via $router dev $interface $metric_arg
-        fi
-	echo $router >>$new_list
-    done
-# now remove extraneous routers that might have been received in the previous
-# reponse from dhcp-server
-    while read router
+    # add new default routes that do not already exist
+    for router in $new_routers
     do
-	if ! grep -x -q "$router" $new_list; then
-	    ip route delete to default via $router dev $interface $metric_arg
+	found=0
+	for ((i = 0; i < ${#old_route[*]}; i++))
+	do
+	    if [ "$router" == "$old_route[$i]" ]; then
+		found=1
+	    fi
+	done
+	if [ $found -eq 0 ]; then
+	    ip route add to default via $router \
+		dev $interface proto dhcp $metric_arg
+        fi
+    done
+
+    # remove routes that are not in new list
+    for ((i = 0; i < ${#old_route[*]}; i++))
+    do
+	found=0
+	for router in $new_routers
+	do
+	    if [ "$router" == "$old_route[$i]" ]; then
+		found=1
+	    fi
+	done
+	if [ $found eq 0 ]; then
+	    ip route delete to default via ${old_route[$i]} dev $interface \
+		proto dhcp $metric_arg
 	fi
-    done <$old_list
-    
-# install new list
-    mv $new_list $old_list
+    done
 }
 
 run_hook() {
