@@ -41,38 +41,38 @@ make_resolv_conf() {
 
 # this function is used to update routers received from dhcp-server for Vyatta
 update_routers() {
-    local i, found
-    local -a old_route=( `ip ro sh dev $interface proto dhcp | awk '{ print $3'` )
+    local found o n
+    local old_routers=$(ip ro sh dev $interface proto dhcp | awk '{ print $3 }')
 
     # add new default routes that do not already exist
-    for router in $new_routers
+    for n in $new_routers
     do
 	found=0
-	for ((i = 0; i < ${#old_route[*]}; i++))
+	for o in $old_routers
 	do
-	    if [ "$router" == "$old_route[$i]" ]; then
+	    if [ "$n" == "$o" ]; then
 		found=1
+		break
 	    fi
 	done
 	if [ $found -eq 0 ]; then
-	    ip route add to default via $router \
-		dev $interface proto dhcp $metric_arg
+	    ip route add to default via $n dev $interface proto dhcp $metric_arg
         fi
     done
 
     # remove routes that are not in new list
-    for ((i = 0; i < ${#old_route[*]}; i++))
+    for o in $old_routers
     do
 	found=0
-	for router in $new_routers
+	for n in $new_routers
 	do
-	    if [ "$router" == "$old_route[$i]" ]; then
+	    if [ "$n" == "$o" ]; then
 		found=1
+		break
 	    fi
 	done
 	if [ $found eq 0 ]; then
-	    ip route delete to default via ${old_route[$i]} dev $interface \
-		proto dhcp $metric_arg
+	    ip route delete to default via $o dev $interface proto dhcp
 	fi
     done
 }
@@ -160,6 +160,9 @@ if [ -n "$new_interface_mtu" ] && [ $new_interface_mtu -ge 575 ]; then
 fi
 if [ -n "$IF_METRIC" ]; then
     metric_arg="metric $IF_METRIC"	# interfaces(5), "metric" option
+else
+    metric_arg="metric 2"		# default to lower priority than
+    					# static routes
 fi
 
 
