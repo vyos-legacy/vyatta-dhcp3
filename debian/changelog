@@ -1,3 +1,16 @@
+vyatta-dhcp3 (3.0.6.dfsg-16) unstable; urgency=low
+
+  * Remove unneeded directory creation
+  * Remove empty script
+  * Break long lines in description
+  * Fix man page error
+  * Fix man page error for omapip
+  * Remove unneeded sudo
+  * Remove commented out code
+  * Default to metric of 2
+
+ -- Stephen Hemminger <stephen.hemminger@vyatta.com>  Wed, 01 Apr 2009 16:37:46 -0700
+
 vyatta-dhcp3 (3.0.6.dfsg-15) unstable; urgency=low
 
   * Fix router update logic
