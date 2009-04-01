@@ -67,8 +67,6 @@ update_routers() {
     local i, found
     local -a old_route=( `ip ro sh dev $interface proto dhcp | awk '{ print $3'` )
 
-    [ -d /var/run/vyatta/dhclient ] ||  mkdir /var/run/vyatta/dhclient
-
     # add new default routes that do not already exist
     for router in $new_routers
     do
