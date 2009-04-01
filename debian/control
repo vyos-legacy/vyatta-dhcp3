@@ -33,8 +33,8 @@ Depends: debianutils (>= 2.8.2),
  ${misc:Depends}
 Conflicts: dhcp3-common
 Description: Vyattanized common files used by all the vyatta-dhcp3* packages
- This package contains the files used by all the packages from the Vyattanized ISC
- DHCP version 3.
+ This package contains the files used by all the packages from the
+ Vyattanized ISC DHCP version 3.
 
 Package: vyatta-dhcp3-dev
 Priority: optional
@@ -42,9 +42,9 @@ Architecture: any
 Section: devel
 Depends: libc6-dev
 Conflicts: dhcp3-dev
-Description: Vyattanized API for accessing and modifying the DHCP server and client state
- OMAPI is an API for accessing and modifying the DHCP server and
- client state.
+Description: Vyattanized API for accessing and modifying the DHCP server
+ and client state OMAPI is an API for accessing and modifying the DHCP 
+ server and client state.
 
 Package: vyatta-dhcp3-client
 Architecture: any
