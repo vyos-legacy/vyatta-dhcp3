@@ -71,7 +71,7 @@ update_routers() {
 		break
 	    fi
 	done
-	if [ $found eq 0 ]; then
+	if [ $found -eq 0 ]; then
 	    ip route delete to default via $o dev $interface proto dhcp
 	fi
     done
