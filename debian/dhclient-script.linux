@@ -235,6 +235,8 @@ case "$reason" in
             ifconfig $interface:0- inet 0
         fi
 
+        update_routers
+
         if [ -n "$old_ip_address" ]; then
             # Shut down interface, which will delete routes and clear arp cache.
             # if mtu not set in CLI, then set mtu to 1500
@@ -251,8 +253,6 @@ case "$reason" in
         fi
 
 	make_resolv_conf
-
-        update_routers
 
         ;;
 
