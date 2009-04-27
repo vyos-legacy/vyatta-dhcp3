@@ -1,3 +1,10 @@
+vyatta-dhcp3 (3.0.6.dfsg-19) unstable; urgency=low
+
+  * Remove interface alias support
+  * Use ip link to control interface
+
+ -- Stephen Hemminger <stephen.hemminger@vyatta.com>  Sun, 26 Apr 2009 19:52:33 -0700
+
 vyatta-dhcp3 (3.0.6.dfsg-18) unstable; urgency=low
 
   * Remove routes before removing address
