@@ -1,3 +1,9 @@
+vyatta-dhcp3 (3.0.6.dfsg-18) unstable; urgency=low
+
+  * Remove routes before removing address
+
+ -- Stephen Hemminger <stephen.hemminger@vyatta.com>  Fri, 24 Apr 2009 11:27:26 -0700
+
 vyatta-dhcp3 (3.0.6.dfsg-17) unstable; urgency=low
 
   * missing hyphen
