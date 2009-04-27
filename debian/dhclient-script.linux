@@ -37,6 +37,16 @@ make_resolv_conf() {
     rm -f $old_resolv_conf
 }
 
+# Look for MTU in vyatta configuration
+get_mtu() {
+    local level=$(/opt/vyatta/sbin/vyatta-interfaces.pl --dev=$interface --path)
+    local mtu
+
+    if read mtu < /opt/vyatta/config/active/$level; then
+	echo $mtu
+    fi
+}
+
 # this function is used to update routers received from dhcp-server for Vyatta
 update_routers() {
     local found o n
@@ -145,13 +155,12 @@ if [ -n "$old_subnet_mask" ]; then
     old_subnet_arg="netmask $old_subnet_mask"
 fi
 if [ -n "$new_interface_mtu" ] && [ $new_interface_mtu -ge 575 ]; then
-   if [ -f /opt/vyatta/config/active/interfaces/ethernet/$interface/mtu/node.val ]; then 
-      # get the interface mtu set in CLI and set it to mtu_arg
-      local system_interface_mtu=( `cat /opt/vyatta/config/active/interfaces/ethernet/$interface/mtu/node.val | tr '\n' ' '` )
-      mtu_arg="mtu ${system_interface_mtu[0]}"
-   else
-      mtu_arg="mtu $new_interface_mtu"
-   fi
+    vyatta_mtu=$(get_mtu $interface)
+    if [ -n "$vyatta_mtu" ]; then
+	mtu_arg="mtu $vyatta_mtu"
+    else
+	mtu_arg="mtu $new_interface_mtu"
+    fi
 fi
 if [ -n "$IF_METRIC" ]; then
     metric_arg="metric $IF_METRIC"	# interfaces(5), "metric" option
@@ -205,9 +214,12 @@ case "$reason" in
 
     EXPIRE|FAIL|RELEASE|STOP)
         update_routers
-
         if [ -n "$old_ip_address" ]; then
-            ifconfig $interface inet 0
+	    if [ -n "$mtu_arg" -a -n "$vyatta_mtu" ]; then
+		ifconfig $interface inet 0 mtu $vyatta_mtu
+	    else
+		ifconfig $interface inet 0
+	    fi
         fi
 
 	make_resolv_conf
