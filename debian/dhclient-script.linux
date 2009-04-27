@@ -172,26 +172,24 @@ case "$reason" in
     MEDIUM|ARPCHECK|ARPSEND)
         # Do nothing
         ;;
+
     PREINIT)
         # The DHCP client is requesting that an interface be
         # configured as required in order to send packets prior to
         # receiving an actual address. - dhclient-script(8)
-
-        ifconfig $interface inet 0 up
-
-        # We need to give the kernel some time to get the interface up.
-        sleep 1
+	ip link set $interface up
         ;;
+
     BOUND|RENEW|REBIND|REBOOT)
 
         set_hostname
         
         if [ -n "$old_ip_address" -a \
              "$old_ip_address" != "$new_ip_address" ]; then
-            # IP address changed. Bringing down the interface will delete all routes,
+            # IP address changed. 
+	    # Bringing down the interface will delete all routes,
             # and clear the ARP cache.
-            ifconfig $interface inet 0
-
+	    ip link set $interface down
         fi
 
         if [ -z "$old_ip_address" -o "$old_ip_address" != "$new_ip_address" -o \
@@ -202,26 +200,17 @@ case "$reason" in
         fi
 
         make_resolv_conf
-
         update_routers
-
         ;;
 
     EXPIRE|FAIL|RELEASE|STOP)
         update_routers
 
         if [ -n "$old_ip_address" ]; then
-            # Shut down interface, which will delete routes and clear arp cache.
-            # if mtu not set in CLI, then set mtu to 1500
-            if [ -f /opt/vyatta/config/active/interfaces/ethernet/$interface/mtu/node.val ]; then
-               ifconfig $interface inet 0
-            else 
-               ifconfig $interface inet 0 mtu 1500
-            fi
+            ifconfig $interface inet 0
         fi
 
 	make_resolv_conf
-
         ;;
 
     TIMEOUT)
@@ -239,7 +228,6 @@ case "$reason" in
             ifconfig $interface inet 0
             exit_with_hooks 2 "$@"
         fi
-
         ;;
 esac
 
