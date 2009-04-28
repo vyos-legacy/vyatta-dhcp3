@@ -37,16 +37,6 @@ make_resolv_conf() {
     rm -f $old_resolv_conf
 }
 
-# Look for MTU in vyatta configuration
-get_mtu() {
-    local level=$(/opt/vyatta/sbin/vyatta-interfaces.pl --dev=$interface --path)
-    local mtu
-
-    if read mtu < /opt/vyatta/config/active/$level; then
-	echo $mtu
-    fi
-}
-
 # this function is used to update routers received from dhcp-server for Vyatta
 update_routers() {
     local found o n
@@ -154,11 +144,19 @@ fi
 if [ -n "$old_subnet_mask" ]; then
     old_subnet_arg="netmask $old_subnet_mask"
 fi
-if [ -n "$new_interface_mtu" ] && [ $new_interface_mtu -ge 575 ]; then
-    vyatta_mtu=$(get_mtu $interface)
-    if [ -n "$vyatta_mtu" ]; then
-	mtu_arg="mtu $vyatta_mtu"
-    else
+if [ -n "$new_interface_mtu" ]; then
+    # Vyatta configuration overrides response from server to allow user
+    # to work around broken ISP's
+    mtu_path=$(/opt/vyatta/sbin/vyatta-interfaces.pl --dev=$interface --path)
+    if [ -r $mtu_path ]; then
+	read new_interface_mtu < $mtu_path
+    fi
+    # The 576 MTU is only used for X.25 and dialup connections
+    # where the admin wants low latency.  Such a low MTU can cause
+    # problems with UDP traffic, among other things.  As such,
+    # disallow MTUs from 576 and below by default, so that broken
+    # MTUs are ignored, but higher stuff is allowed (1492, 1500, etc).
+    if [ $new_interface_mtu -gt 576 ]; then
 	mtu_arg="mtu $new_interface_mtu"
     fi
 fi
