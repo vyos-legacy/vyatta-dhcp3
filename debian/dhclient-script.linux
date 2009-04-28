@@ -184,7 +184,12 @@ case "$reason" in
         # The DHCP client is requesting that an interface be
         # configured as required in order to send packets prior to
         # receiving an actual address. - dhclient-script(8)
-	ip link set $interface up
+        ip -family inet addr flush dev $interface
+        ip link set $interface up
+
+        if [ -n "$DHCLIENT_DELAY" ] && [ $DHCLIENT_DELAY -gt 0 ]; then
+            sleep $DHCLIENT_DELAY
+        fi
         ;;
 
     BOUND|RENEW|REBIND|REBOOT)
