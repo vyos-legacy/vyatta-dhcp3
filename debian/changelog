@@ -1,3 +1,9 @@
+vyatta-dhcp3 (3.0.6.dfsg-23) unstable; urgency=low
+
+  * Use NetAddr::IP instead of ipcalc
+
+ -- Stephen Hemminger <stephen.hemminger@vyatta.com>  Wed, 29 Apr 2009 14:19:43 -0700
+
 vyatta-dhcp3 (3.0.6.dfsg-22) unstable; urgency=low
 
   * Flush routes when address changes
