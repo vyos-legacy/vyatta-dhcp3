@@ -112,7 +112,7 @@ dhconfig() {
 	# IP address changed.  Bringing down the interface will delete all
 	# routes, and clear the ARP cache.
         ip -family inet addr flush dev $interface
-        ip link set dev $interface down
+        ip -family inet link set dev $interface down
     fi
 
     if [ "$reason" = "BOUND" ] || [ "$reason" = "REBOOT" ] ||
@@ -122,7 +122,7 @@ dhconfig() {
        [ ! "$old_broadcast_address" = "$new_broadcast_address" ] ||
        [ ! "$old_routers" = "$new_routers" ] ||
        [ ! "$old_interface_mtu" = "$new_interface_mtu" ]; then
-
+	ip -family inet link set dev $interface up
         ip -family inet addr add $new_ip_address/$new_prefix \
 	    broadcast $new_broadcast_address dev $interface
 
