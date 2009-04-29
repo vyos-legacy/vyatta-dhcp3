@@ -48,7 +48,7 @@ Description: Vyattanized API for accessing and modifying the DHCP server
 
 Package: vyatta-dhcp3-client
 Architecture: any
-Depends: debianutils (>= 2.8.2), ipcalc,
+Depends: debianutils (>= 2.8.2),
  vyatta-dhcp3-common (= ${binary:Version}),
  ${shlibs:Depends},
  ${misc:Depends}

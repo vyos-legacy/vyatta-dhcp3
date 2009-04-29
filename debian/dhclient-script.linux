@@ -87,6 +87,13 @@ exit_with_hooks() {
     exit $exit_status
 }
 
+get_prefix() {
+    # use existing perl module to compute prefix
+    # one line don't bother with script
+    perl -MNetAddr::IP \
+	-e '$ip = new NetAddr::IP(@ARGV); print $ip->masklen(), "\n"' $*
+}
+
 set_hostname() {
     local current_hostname=$(hostname)
     if [ -z "$current_hostname" -o "$current_hostname" = "(none)" ]; then
@@ -140,10 +147,10 @@ dhconfig() {
 }
 
 if [ -n "$new_subnet_mask" ]; then
-    new_prefix=$(ipcalc $new_ip_address $new_subnet_mask | awk '/^Netmask/ { print $4}')
+    new_prefix=$(get_prefix $new_ip_address $new_subnet_mask)
 fi
 if [ -n "$old_subnet_mask" ]; then
-    old_prefix=$(ipcalc $old_ip_address $old_subnet_mask | awk '/^Netmask/ { print $4}')
+    old_prefix=$(get_prefix $old_ip_address $old_subnet_mask)
 fi
 if [ -n "$new_interface_mtu" ]; then
     # Vyatta configuration overrides response from server to allow user
