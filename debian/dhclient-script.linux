@@ -95,7 +95,8 @@ set_hostname() {
 }
 
 dhconfig() {
-    if  [ ! "$old_routers" = "$new_routers" ]; then
+    if  [ ! "$old_routers" = "$new_routers" ] || 
+	[ ! "$old_ip_address" = "$new_ip_address" ]; then
         # Flush old default route
 	ip route flush dev $interface proto dhcp
     fi
@@ -105,7 +106,7 @@ dhconfig() {
         # IP address changed.  Bringing down the interface will delete all
         # routes, and clear the ARP cache.
         ip -family inet addr flush dev $interface
-        ip -family inet link set dev $interface down
+        ip link set dev $interface down
     fi
 
     if [ "$reason" = "BOUND" ] || [ "$reason" = "REBOOT" ] ||
