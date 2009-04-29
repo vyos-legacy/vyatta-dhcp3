@@ -95,16 +95,15 @@ set_hostname() {
 }
 
 dhconfig() {
-    if  [ ! "$old_routers" = "$new_routers" ] || 
-	[ ! "$old_ip_address" = "$new_ip_address" ]; then
-        # Flush old default route
+    if [ -n "$old_routers" ] && [ ! "$old_routers" = "$new_routers" ]; then
+	# Flush old default route
 	ip route flush dev $interface proto dhcp
     fi
 
     if [ -n "$old_ip_address" ] &&
        [ ! "$old_ip_address" = "$new_ip_address" ]; then
-        # IP address changed.  Bringing down the interface will delete all
-        # routes, and clear the ARP cache.
+	# IP address changed.  Bringing down the interface will delete all
+	# routes, and clear the ARP cache.
         ip -family inet addr flush dev $interface
         ip link set dev $interface down
     fi
@@ -116,8 +115,13 @@ dhconfig() {
        [ ! "$old_broadcast_address" = "$new_broadcast_address" ] ||
        [ ! "$old_routers" = "$new_routers" ] ||
        [ ! "$old_interface_mtu" = "$new_interface_mtu" ]; then
-	ifconfig $interface inet $new_ip_address $new_subnet_arg \
-                $new_broadcast_arg $mtu_arg
+
+        ip -family inet addr add $new_ip_address/$new_prefix \
+	    broadcast $new_broadcast_address dev $interface
+
+        if [ -n "${new_interface_mtu}" ]; then
+            ip link set ${interface} mtu ${new_interface_mtu}
+        fi
 
 	# point to point
 	if [ "$new_subnet_mask" == "255.255.255.255" ]; then
@@ -135,17 +139,11 @@ dhconfig() {
     make_resolv_conf
 }
 
-if [ -n "$new_broadcast_address" ]; then
-    new_broadcast_arg="broadcast $new_broadcast_address"
-fi
-if [ -n "$old_broadcast_address" ]; then
-    old_broadcast_arg="broadcast $old_broadcast_address"
-fi
 if [ -n "$new_subnet_mask" ]; then
-    new_subnet_arg="netmask $new_subnet_mask"
+    new_prefix=$(ipcalc $new_ip_address $new_subnet_mask | awk '/^Netmask/ { print $4}')
 fi
 if [ -n "$old_subnet_mask" ]; then
-    old_subnet_arg="netmask $old_subnet_mask"
+    old_prefix=$(ipcalc $old_ip_address $old_subnet_mask | awk '/^Netmask/ { print $4}')
 fi
 if [ -n "$new_interface_mtu" ]; then
     # Vyatta configuration overrides response from server to allow user
@@ -160,10 +158,11 @@ if [ -n "$new_interface_mtu" ]; then
     # problems with UDP traffic, among other things.  As such,
     # disallow MTUs from 576 and below by default, so that broken
     # MTUs are ignored, but higher stuff is allowed (1492, 1500, etc).
-    if [ $new_interface_mtu -gt 576 ]; then
-	mtu_arg="mtu $new_interface_mtu"
+    if [ $new_interface_mtu -le 576 ]; then
+	new_interface_mtu=
     fi
 fi
+
 if [ -n "$IF_METRIC" ]; then
     metric_arg="metric $IF_METRIC"	# interfaces(5), "metric" option
 else
