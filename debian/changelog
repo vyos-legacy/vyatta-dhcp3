@@ -1,3 +1,10 @@
+vyatta-dhcp3 (3.0.6.dfsg-22) unstable; urgency=low
+
+  * Flush routes when address changes
+  * Fix interface setup to us ip addr
+
+ -- Stephen Hemminger <stephen.hemminger@vyatta.com>  Wed, 29 Apr 2009 13:59:31 -0700
+
 vyatta-dhcp3 (3.0.6.dfsg-21) unstable; urgency=low
 
   * Fix MTU management
