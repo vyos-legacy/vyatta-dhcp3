@@ -95,11 +95,17 @@ set_hostname() {
 }
 
 dhconfig() {
+    if  [ ! "$old_routers" = "$new_routers" ]; then
+        # Flush old default route
+	ip route flush dev $interface proto dhcp
+    fi
+
     if [ -n "$old_ip_address" ] &&
        [ ! "$old_ip_address" = "$new_ip_address" ]; then
         # IP address changed.  Bringing down the interface will delete all
         # routes, and clear the ARP cache.
         ip -family inet addr flush dev $interface
+        ip -family inet link set dev $interface down
     fi
 
     if [ "$reason" = "BOUND" ] || [ "$reason" = "REBOOT" ] ||
@@ -119,15 +125,10 @@ dhconfig() {
 	    done
 	fi
 
-	if [ -n "$old_ip_address" ] || 
-	   [ ! "$old_routers" = "$new_routers" ]; then
-	    ip route flush dev $interface proto dhcp
-
-            for router in $new_routers; do
-		ip route add to default via $router dev $interface \
-		    proto dhcp $metric_arg
-            done
-	fi
+        for router in $new_routers; do
+	    ip route add to default via $router dev $interface \
+		proto dhcp $metric_arg
+        done
     fi
 
     make_resolv_conf
@@ -178,19 +179,29 @@ run_hookdir /etc/dhcp3/dhclient-enter-hooks.d
 
 # Execute the operation
 case "$reason" in
-    MEDIUM|ARPCHECK|ARPSEND)
+    MEDIUM)
         # Do nothing
         ;;
 
     PREINIT)
-        # The DHCP client is requesting that an interface be
-        # configured as required in order to send packets prior to
-        # receiving an actual address. - dhclient-script(8)
-        ip -family inet addr flush dev $interface
-        ip link set $interface up
+        if [ "${keep_old_ip}" = "yes" ]; then
+            ip link set $interface up
+        else
+            ip -family inet addr flush dev $interface
+            ip link set $interface up
+        fi
 
         if [ -n "$DHCLIENT_DELAY" ] && [ $DHCLIENT_DELAY -gt 0 ]; then
             sleep $DHCLIENT_DELAY
+        fi
+        ;;
+
+    ARPCHECK|ARPSEND)
+        if [ -z "$new_ip_address" ] || [ -z "$interface" ] ||
+           arping -q -f -c 2 -w 3 -D -I $interface $new_ip_address; then
+            exit_with_hooks 0
+        else
+            exit_with_hooks 1
         fi
         ;;
 
@@ -201,8 +212,10 @@ case "$reason" in
         ;;
 
     EXPIRE|FAIL|RELEASE|STOP)
+	if  [ -n "$old_routers" ]; then
+	    ip route flush dev $interface proto dhcp
+	fi
         if [ -n "$old_ip_address" ]; then
-            # Shut down interface, which will delete routes and clear arp cache.
             ip -family inet addr flush dev $interface
 	    ip link set dev $interface down
         fi
