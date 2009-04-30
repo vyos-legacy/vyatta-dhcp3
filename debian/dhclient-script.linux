@@ -102,17 +102,10 @@ set_hostname() {
 }
 
 dhconfig() {
-    if [ -n "$old_routers" ] && [ ! "$old_routers" = "$new_routers" ]; then
-	# Flush old default route
-	ip route flush dev $interface proto dhcp
-    fi
-
     if [ -n "$old_ip_address" ] &&
        [ ! "$old_ip_address" = "$new_ip_address" ]; then
-	# IP address changed.  Bringing down the interface will delete all
-	# routes, and clear the ARP cache.
-        ip -family inet addr flush dev $interface
-        ip -family inet link set dev $interface down
+	# Clear out route cache and ARP tables and all addresses and routes
+	ip -family inet addr flush dev $interface
     fi
 
     if [ "$reason" = "BOUND" ] || [ "$reason" = "REBOOT" ] ||
@@ -122,12 +115,11 @@ dhconfig() {
        [ ! "$old_broadcast_address" = "$new_broadcast_address" ] ||
        [ ! "$old_routers" = "$new_routers" ] ||
        [ ! "$old_interface_mtu" = "$new_interface_mtu" ]; then
-	ip -family inet link set dev $interface up
         ip -family inet addr add $new_ip_address/$new_prefix \
 	    broadcast $new_broadcast_address dev $interface
 
-        if [ -n "${new_interface_mtu}" ]; then
-            ip link set ${interface} mtu ${new_interface_mtu}
+        if [ -n "$new_interface_mtu" ]; then
+            ip link set $interface mtu $new_interface_mtu
         fi
 
 	# point to point
@@ -135,6 +127,11 @@ dhconfig() {
 	    for router in $new_routers; do
 		ip route add to $router dev $interface proto dhcp
 	    done
+	fi
+
+	# flush routes if necessary
+	if  [ -n "$old_routers" ]  && [ ! "$old_routers" = "$new_routers" ]; then
+	    ip route flush dev $interface proto dhcp
 	fi
 
         for router in $new_routers; do
@@ -191,12 +188,8 @@ case "$reason" in
         ;;
 
     PREINIT)
-        if [ "${keep_old_ip}" = "yes" ]; then
-            ip link set $interface up
-        else
-            ip -family inet addr flush dev $interface
-            ip link set $interface up
-        fi
+        ip -family inet addr flush dev $interface
+        ip link set $interface up
 
         if [ -n "$DHCLIENT_DELAY" ] && [ $DHCLIENT_DELAY -gt 0 ]; then
             sleep $DHCLIENT_DELAY
@@ -223,16 +216,18 @@ case "$reason" in
 	    ip route flush dev $interface proto dhcp
 	fi
         if [ -n "$old_ip_address" ]; then
-            ip -family inet addr flush dev $interface
-	    ip link set dev $interface down
+            ip -family inet addr flush dev ${interface}
         fi
+	if [ "$reason" = "STOP" ]; then
+            ip link set ${interface} down
+	fi
 	make_resolv_conf
         ;;
 
     TIMEOUT)
         if [ -n "$new_routers" ]; then
-	    ifconfig $interface inet $new_ip_address $new_subnet_arg \
-                $new_broadcast_arg $mtu_arg
+            ip -family inet addr add $new_ip_address/$new_prefix \
+		broadcast $new_broadcast_address dev $interface
 
             set -- $new_routers
             first_router="$1"
