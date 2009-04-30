@@ -1,3 +1,10 @@
+vyatta-dhcp3 (3.0.6.dfsg-24) unstable; urgency=low
+
+  * Bring link up before setting address
+  * Don't bring interface down during renew
+
+ -- Stephen Hemminger <stephen.hemminger@vyatta.com>  Wed, 29 Apr 2009 23:07:58 -0700
+
 vyatta-dhcp3 (3.0.6.dfsg-23) unstable; urgency=low
 
   * Use NetAddr::IP instead of ipcalc
