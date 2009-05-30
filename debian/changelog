@@ -1,3 +1,9 @@
+vyatta-dhcp3 (3.0.6.dfsg-24+jenner1) unstable; urgency=low
+
+  * UNRELEASED
+
+ -- An-Cheng Huang <ancheng@vyatta.com>  Fri, 29 May 2009 18:31:35 -0700
+
 vyatta-dhcp3 (3.0.6.dfsg-24) unstable; urgency=low
 
   * Bring link up before setting address
