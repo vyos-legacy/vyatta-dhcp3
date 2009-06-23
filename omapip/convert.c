@@ -4,7 +4,7 @@
    can't be assumed to be aligned. */
 
 /*
- * Copyright (c) 2004 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004,2007 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1996-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -33,10 +33,7 @@
  * ``http://www.nominum.com''.
  */
 
-#ifndef lint
-static char copyright[] =
-"$Id: convert.c,v 1.1.2.3 2004/11/24 17:39:17 dhankins Exp $ Copyright (c) 2004 Internet Systems Consortium.  All rights reserved.\n";
-#endif /* not lint */
+#include "dhcpd.h"
 
 #include <omapip/omapip_p.h>
 
@@ -165,7 +162,7 @@ int binary_to_ascii (outbuf, inbuf, base, width)
 	u_int32_t number;
 	static char h2a [] = "0123456789abcdef";
 	int power = converted_length (inbuf, base, width);
-	int i, j;
+	int i;
 
 	if (base > 16)
 		return 0;

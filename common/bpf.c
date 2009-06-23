@@ -3,7 +3,7 @@
    BPF socket interface code, originally contributed by Archie Cobbs. */
 
 /*
- * Copyright (c) 2004-2007 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004,2007 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1996-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -32,11 +32,6 @@
  * managed to get me to integrate them.
  */
 
-#ifndef lint
-static char copyright[] =
-"$Id: bpf.c,v 1.48.2.9 2007/05/01 20:42:55 each Exp $ Copyright (c) 2004 Internet Systems Consortium.  All rights reserved.\n";
-#endif /* not lint */
-
 #include "dhcpd.h"
 #if defined (USE_BPF_SEND) || defined (USE_BPF_RECEIVE)	\
 				|| defined (USE_LPF_RECEIVE)
@@ -48,6 +43,7 @@ static char copyright[] =
 #  include <sys/ioctl.h>
 #  include <sys/uio.h>
 #  include <net/bpf.h>
+#  include <net/if_types.h>
 #  if defined (NEED_OSF_PFILT_HACKS)
 #   include <net/pfilt.h>
 #  endif
@@ -58,6 +54,12 @@ static char copyright[] =
 #include "includes/netinet/udp.h"
 #include "includes/netinet/if_ether.h"
 #endif
+
+#ifdef USE_BPF_RECEIVE
+#include <ifaddrs.h>
+#endif
+
+#include <errno.h>
 
 /* Reinitializes the specified interface after an address change.   This
    is not required for packet-filter APIs. */
@@ -113,6 +115,8 @@ int if_register_bpf (info)
 	if (ioctl (sock, BIOCSETIF, info -> ifp) < 0)
 		log_fatal ("Can't attach interface %s to bpf device %s: %m",
 		       info -> name, filename);
+
+	get_hw_addr(info->name, &info->hw_address);
 
 	return sock;
 }
@@ -222,9 +226,10 @@ void if_register_receive (info)
 {
 	int flag = 1;
 	struct bpf_version v;
-	u_int32_t addr;
 	struct bpf_program p;
+#ifdef NEED_OSF_PFILT_HACKS
 	u_int32_t bits;
+#endif
 #ifdef DEC_FDDI
 	int link_layer;
 #endif /* DEC_FDDI */
@@ -352,7 +357,6 @@ ssize_t send_packet (interface, packet, raw, len, from, to, hto)
 	double ip [32];
 	struct iovec iov [3];
 	int result;
-	int fudge;
 
 	if (!strcmp (interface -> name, "fallback"))
 		return send_fallback (interface, packet, raw,
@@ -542,5 +546,61 @@ void maybe_setup_fallback ()
 				   fbi -> name, isc_result_totext (status));
 		interface_dereference (&fbi, MDL);
 	}
+}
+
+void
+get_hw_addr(const char *name, struct hardware *hw) {
+	struct ifaddrs *ifa;
+	struct ifaddrs *p;
+	struct sockaddr_dl *sa;
+
+	if (getifaddrs(&ifa) != 0) {
+		log_fatal("Error getting interface information; %m");
+	}
+
+	/*
+	 * Loop through our interfaces finding a match.
+	 */
+	sa = NULL;
+	for (p=ifa; (p != NULL) && (sa == NULL); p = p->ifa_next) {
+		if ((p->ifa_addr->sa_family == AF_LINK) && 
+		    !strcmp(p->ifa_name, name)) {
+		    	sa = (struct sockaddr_dl *)p->ifa_addr;
+		}
+	}
+	if (sa == NULL) {
+		log_fatal("No interface called '%s'", name);
+	}
+
+	/*
+	 * Pull out the appropriate information.
+	 */
+        switch (sa->sdl_type) {
+                case IFT_ETHER:
+                        hw->hlen = sa->sdl_alen + 1;
+                        hw->hbuf[0] = HTYPE_ETHER;
+                        memcpy(&hw->hbuf[1], LLADDR(sa), sa->sdl_alen);
+                        break;
+		case IFT_ISO88023:
+		case IFT_ISO88024: /* "token ring" */
+		case IFT_ISO88025:
+		case IFT_ISO88026:
+                        hw->hlen = sa->sdl_alen + 1;
+                        hw->hbuf[0] = HTYPE_IEEE802;
+                        memcpy(&hw->hbuf[1], LLADDR(sa), sa->sdl_alen);
+                        break;
+#ifdef IFT_FDDI
+                case IFT_FDDI:
+                        hw->hlen = sa->sdl_alen + 1;
+                        hw->hbuf[0] = HTYPE_FDDI;
+                        memcpy(&hw->hbuf[1], LLADDR(sa), sa->sdl_alen);
+                        break;
+#endif /* IFT_FDDI */
+                default:
+                        log_fatal("Unsupported device type %d for \"%s\"",
+                                  sa->sdl_type, name);
+        }
+
+	freeifaddrs(ifa);
 }
 #endif

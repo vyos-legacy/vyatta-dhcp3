@@ -3,7 +3,7 @@
    Definitions for the object management API and protocol... */
 
 /*
- * Copyright (c) 2004 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004,2007 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1996-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -35,6 +35,7 @@
 #ifndef _OMAPIP_H_
 #define _OMAPIP_H_
 #include <isc-dhcp/result.h>
+#include <stdarg.h>
 
 typedef unsigned int omapi_handle_t;
 

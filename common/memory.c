@@ -3,7 +3,7 @@
    Memory-resident database... */
 
 /*
- * Copyright (c) 2004 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004,2007 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1995-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -31,11 +31,6 @@
  * see ``http://www.vix.com''.   To learn more about Nominum, Inc., see
  * ``http://www.nominum.com''.
  */
-
-#ifndef lint
-static char copyright[] =
-"$Id: memory.c,v 1.66.2.5 2004/06/10 17:59:19 dhankins Exp $ Copyright (c) 2004 Internet Systems Consortium.  All rights reserved.\n";
-#endif /* not lint */
 
 #include "dhcpd.h"
 
@@ -84,8 +79,7 @@ isc_result_t delete_group (struct group_object *group, int writep)
 
 isc_result_t supersede_group (struct group_object *group, int writep)
 {
-	struct group_object *t, *u;
-	isc_result_t status;
+	struct group_object *t;
 
 	/* Register the group in the group name hash table,
 	   so we can look it up later. */
@@ -119,7 +113,7 @@ isc_result_t supersede_group (struct group_object *group, int writep)
 			}
 		}
 	} else {
-		group_new_hash (&group_name_hash, 0, MDL);
+		group_new_hash(&group_name_hash, GROUP_HASH_SIZE, MDL);
 		t = (struct group_object *)0;
 	}
 
@@ -142,7 +136,6 @@ isc_result_t supersede_group (struct group_object *group, int writep)
 int clone_group (struct group **gp, struct group *group,
 		 const char *file, int line)
 {
-	isc_result_t status;
 	struct group *g = (struct group *)0;
 
 	/* Normally gp should contain the null pointer, but for convenience

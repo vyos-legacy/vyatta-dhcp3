@@ -3,7 +3,7 @@
    Lexical scanner for dhcpd config file... */
 
 /*
- * Copyright (c) 2004-2006 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2008 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1995-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -32,17 +32,13 @@
  * ``http://www.nominum.com''.
  */
 
-#ifndef lint
-static char copyright[] =
-"$Id: conflex.c,v 1.92.2.19 2006/02/22 22:43:27 dhankins Exp $ Copyright (c) 2004-2006 Internet Systems Consortium.  All rights reserved.\n";
-#endif /* not lint */
-
 #include "dhcpd.h"
 #include <ctype.h>
 
 static int get_char PROTO ((struct parse *));
-static enum dhcp_token get_token PROTO ((struct parse *));
+static void unget_char(struct parse *, int);
 static void skip_to_eol PROTO ((struct parse *));
+static enum dhcp_token read_whitespace(int c, struct parse *cfile);
 static enum dhcp_token read_string PROTO ((struct parse *));
 static enum dhcp_token read_number PROTO ((int, struct parse *));
 static enum dhcp_token read_num_or_name PROTO ((int, struct parse *));
@@ -56,53 +52,122 @@ isc_result_t new_parse (cfile, file, inbuf, buflen, name, eolp)
 	const char *name;
 	int eolp;
 {
+	isc_result_t status = ISC_R_SUCCESS;
 	struct parse *tmp;
 
-	tmp = dmalloc (sizeof (struct parse), MDL);
-	if (!tmp)
-		return ISC_R_NOMEMORY;
-	memset (tmp, 0, sizeof *tmp);
+	tmp = dmalloc(sizeof(struct parse), MDL);
+	if (tmp == NULL) {
+		return (ISC_R_NOMEMORY);
+	}
 
-	tmp -> token = 0;
-	tmp -> tlname = name;
-	tmp -> lpos = tmp -> line = 1;
-	tmp -> cur_line = tmp -> line1;
-	tmp -> prev_line = tmp -> line2;
-	tmp -> token_line = tmp -> cur_line;
-	tmp -> cur_line [0] = tmp -> prev_line [0] = 0;
-	tmp -> warnings_occurred = 0;
-	tmp -> file = file;
-	tmp -> eol_token = eolp;
+	/*
+	 * We don't need to initialize things to zero here, since 
+	 * dmalloc() returns memory that is set to zero.
+	 */
+	tmp->tlname = name;
+	tmp->lpos = tmp -> line = 1;
+	tmp->cur_line = tmp->line1;
+	tmp->prev_line = tmp->line2;
+	tmp->token_line = tmp->cur_line;
+	tmp->cur_line[0] = tmp->prev_line[0] = 0;
+	tmp->file = file;
+	tmp->eol_token = eolp;
 
-	tmp -> bufix = 0;
-	tmp -> buflen = buflen;
-	if (inbuf) {
-		tmp -> bufsiz = 0;
-		tmp -> inbuf = inbuf;
+	if (inbuf != NULL) {
+		tmp->inbuf = inbuf;
+		tmp->buflen = buflen;
+		tmp->bufsiz = 0;
 	} else {
-		tmp -> inbuf = dmalloc (8192, MDL);
-		if (!tmp -> inbuf) {
-			dfree (tmp, MDL);
-			return ISC_R_NOMEMORY;
+		struct stat sb;
+
+		if (fstat(file, &sb) < 0) {
+			status = ISC_R_IOERROR;
+			goto cleanup;
 		}
-		tmp -> bufsiz = 8192;
+
+		if (sb.st_size == 0)
+			goto cleanup;
+
+		tmp->bufsiz = tmp->buflen = (size_t) sb.st_size;
+		tmp->inbuf = mmap(NULL, tmp->bufsiz, PROT_READ, MAP_SHARED,
+				  file, 0);
+
+		if (tmp->inbuf == MAP_FAILED) {
+			status = ISC_R_IOERROR;
+			goto cleanup;
+		}
 	}
 
 	*cfile = tmp;
-	return ISC_R_SUCCESS;
+	return (ISC_R_SUCCESS);
+
+cleanup:
+	dfree(tmp, MDL);
+	return (status);
 }
 
 isc_result_t end_parse (cfile)
 	struct parse **cfile;
 {
 	/* "Memory" config files have no file. */
-	if ((*cfile)->file != -1)
+	if ((*cfile)->file != -1) {
+		munmap((*cfile)->inbuf, (*cfile)->bufsiz);
 		close((*cfile)->file);
+	}
 
-	if ((*cfile)->bufsiz)
-		dfree((*cfile)->inbuf, MDL);
+	if ((*cfile)->saved_state != NULL) {
+		dfree((*cfile)->saved_state, MDL);
+	}
+		
 	dfree(*cfile, MDL);
 	*cfile = NULL;
+	return ISC_R_SUCCESS;
+}
+
+/*
+ * Save the current state of the parser.
+ *
+ * Only one state may be saved. Any previous saved state is
+ * lost.
+ */
+isc_result_t
+save_parse_state(struct parse *cfile) {
+	/*
+	 * Free any previous saved state.
+	 */
+	if (cfile->saved_state != NULL) {
+		dfree(cfile->saved_state, MDL);
+	}
+
+	/*
+	 * Save our current state.
+	 */
+	cfile->saved_state = dmalloc(sizeof(struct parse), MDL);
+	if (cfile->saved_state == NULL) {
+		return ISC_R_NOMEMORY;
+	}
+	memcpy(cfile->saved_state, cfile, sizeof(*cfile));
+	return ISC_R_SUCCESS;
+}
+
+/*
+ * Return the parser to the previous saved state.
+ *
+ * You must call save_parse_state() before calling 
+ * restore_parse_state(), but you can call restore_parse_state() any
+ * number of times after that.
+ */
+isc_result_t
+restore_parse_state(struct parse *cfile) {
+	struct parse *saved_state;
+
+	if (cfile->saved_state == NULL) {
+		return ISC_R_NOTYET;
+	}
+
+	saved_state = cfile->saved_state;
+	memcpy(cfile, saved_state, sizeof(*cfile));
+	cfile->saved_state = saved_state;
 	return ISC_R_SUCCESS;
 }
 
@@ -112,80 +177,89 @@ static int get_char (cfile)
 	/* My kingdom for WITH... */
 	int c;
 
-	if (cfile -> bufix == cfile -> buflen) {
-		if (cfile -> file != -1) {
-			cfile -> buflen =
-				read (cfile -> file,
-				      cfile -> inbuf, cfile -> bufsiz);
-			if (cfile -> buflen == 0) {
-				c = EOF;
-				cfile -> bufix = 0;
-			} else if (cfile -> buflen < 0) {
-				c = EOF;
-				cfile -> bufix = cfile -> buflen = 0;
-			} else {
-				c = cfile -> inbuf [0];
-				cfile -> bufix = 1;
-			}
-		} else
-			c = EOF;
-	} else {
-		c = cfile -> inbuf [cfile -> bufix];
-		cfile -> bufix++;
+	if (cfile->bufix == cfile->buflen)
+		c = EOF;
+	else {
+		c = cfile->inbuf [cfile->bufix];
+		cfile->bufix++;
 	}
 
-	if (!cfile -> ugflag) {
+	if (!cfile->ugflag) {
 		if (c == EOL) {
-			if (cfile -> cur_line == cfile -> line1) {	
-				cfile -> cur_line = cfile -> line2;
-				cfile -> prev_line = cfile -> line1;
+			if (cfile->cur_line == cfile->line1) {	
+				cfile->cur_line = cfile->line2;
+				cfile->prev_line = cfile->line1;
 			} else {
-				cfile -> cur_line = cfile -> line1;
-				cfile -> prev_line = cfile -> line2;
+				cfile->cur_line = cfile->line1;
+				cfile->prev_line = cfile->line2;
 			}
-			cfile -> line++;
-			cfile -> lpos = 1;
-			cfile -> cur_line [0] = 0;
+			cfile->line++;
+			cfile->lpos = 1;
+			cfile->cur_line [0] = 0;
 		} else if (c != EOF) {
-			if (cfile -> lpos <= 80) {
-				cfile -> cur_line [cfile -> lpos - 1] = c;
-				cfile -> cur_line [cfile -> lpos] = 0;
+			if (cfile->lpos <= 80) {
+				cfile->cur_line [cfile->lpos - 1] = c;
+				cfile->cur_line [cfile->lpos] = 0;
 			}
-			cfile -> lpos++;
+			cfile->lpos++;
 		}
 	} else
-		cfile -> ugflag = 0;
+		cfile->ugflag = 0;
 	return c;		
 }
 
-static enum dhcp_token get_token (cfile)
-	struct parse *cfile;
-{
+/*
+ * Return a character to our input buffer.
+ */
+static void
+unget_char(struct parse *cfile, int c) {
+	if (c != EOF) {
+		cfile->bufix--;
+		cfile->ugflag = 1;	/* do not put characters into
+					   our error buffer on the next
+					   call to get_char() */
+	}
+}
+
+/*
+ * GENERAL NOTE ABOUT TOKENS
+ *
+ * We normally only want non-whitespace tokens. There are some 
+ * circumstances where we *do* want to see whitespace (for example
+ * when parsing IPv6 addresses).
+ *
+ * Generally we use the next_token() function to read tokens. This 
+ * in turn calls get_next_token, which does *not* return tokens for
+ * whitespace. Rather, it skips these.
+ *
+ * When we need to see whitespace, we us next_raw_token(), which also
+ * returns the WHITESPACE token.
+ *
+ * The peek_token() and peek_raw_token() functions work as expected.
+ *
+ * Warning: if you invoke peek_token(), then if there is a whitespace
+ * token, it will be lost, and subsequent use of next_raw_token() or
+ * peek_raw_token() will NOT see it.
+ */
+
+static enum dhcp_token
+get_raw_token(struct parse *cfile) {
 	int c;
 	enum dhcp_token ttok;
 	static char tb [2];
-	int l, p, u;
+	int l, p;
 
 	do {
 		l = cfile -> line;
 		p = cfile -> lpos;
-		u = cfile -> ugflag;
 
 		c = get_char (cfile);
-#ifdef OLD_LEXER
-		if (c == '\n' && p == 1 && !u
-		    && cfile -> comment_index < sizeof cfile -> comments)
-			cfile -> comments [cfile -> comment_index++] = '\n';
-#endif
-
-		if (!(c == '\n' && cfile -> eol_token)
-		    && isascii (c) && isspace (c))
-			continue;
+		if (!((c == '\n') && cfile->eol_token) && 
+		    isascii(c) && isspace(c)) {
+		    	ttok = read_whitespace(c, cfile);
+			break;
+		}
 		if (c == '#') {
-#ifdef OLD_LEXER
-			if (cfile -> comment_index < sizeof cfile -> comments)
-			    cfile -> comments [cfile -> comment_index++] = '#';
-#endif
 			skip_to_eol (cfile);
 			continue;
 		}
@@ -223,11 +297,17 @@ static enum dhcp_token get_token (cfile)
 	return ttok;
 }
 
-enum dhcp_token next_token (rval, rlen, cfile)
-	const char **rval;
-	unsigned *rlen;
-	struct parse *cfile;
-{
+/*
+ * The get_next_token() function consumes the next token and
+ * returns it to the caller.
+ *
+ * Since the code is almost the same for "normal" and "raw" 
+ * input, we pass a flag to alter the way it works.
+ */
+
+static enum dhcp_token 
+get_next_token(const char **rval, unsigned *rlen, 
+	       struct parse *cfile, isc_boolean_t raw) {
 	int rv;
 
 	if (cfile -> token) {
@@ -238,9 +318,17 @@ enum dhcp_token next_token (rval, rlen, cfile)
 		rv = cfile -> token;
 		cfile -> token = 0;
 	} else {
-		rv = get_token (cfile);
+		rv = get_raw_token(cfile);
 		cfile -> token_line = cfile -> cur_line;
 	}
+
+	if (!raw) {
+		while (rv == WHITESPACE) {
+			rv = get_raw_token(cfile);
+			cfile->token_line = cfile->cur_line;
+		}
+	}
+	
 	if (rval)
 		*rval = cfile -> tval;
 	if (rlen)
@@ -251,17 +339,56 @@ enum dhcp_token next_token (rval, rlen, cfile)
 	return rv;
 }
 
-enum dhcp_token peek_token (rval, rlen, cfile)
-	const char **rval;
-	unsigned int *rlen;
-	struct parse *cfile;
-{
+
+/*
+ * Get the next token from cfile and return it.
+ *
+ * If rval is non-NULL, set the pointer it contains to 
+ * the contents of the token.
+ *
+ * If rlen is non-NULL, set the integer it contains to 
+ * the length of the token.
+ */
+
+enum dhcp_token
+next_token(const char **rval, unsigned *rlen, struct parse *cfile) {
+	return get_next_token(rval, rlen, cfile, ISC_FALSE);
+}
+
+
+/*
+ * The same as the next_token() function above, but will return space
+ * as the WHITESPACE token.
+ */
+
+enum dhcp_token
+next_raw_token(const char **rval, unsigned *rlen, struct parse *cfile) {
+	return get_next_token(rval, rlen, cfile, ISC_TRUE);
+}
+
+
+/*
+ * The do_peek_token() function checks the next token without
+ * consuming it, and returns it to the caller.
+ *
+ * Since the code is almost the same for "normal" and "raw" 
+ * input, we pass a flag to alter the way it works. (See the 
+ * warning in the GENERAL NOTES ABOUT TOKENS above though.)
+ */
+
+enum dhcp_token
+do_peek_token(const char **rval, unsigned int *rlen,
+	      struct parse *cfile, isc_boolean_t raw) {
 	int x;
 
-	if (!cfile -> token) {
+	if (!cfile->token || (!raw && (cfile->token == WHITESPACE))) {
 		cfile -> tlpos = cfile -> lexchar;
 		cfile -> tline = cfile -> lexline;
-		cfile -> token = get_token (cfile);
+
+		do {
+			cfile->token = get_raw_token(cfile);
+		} while (!raw && (cfile->token == WHITESPACE));
+
 		if (cfile -> lexline != cfile -> tline)
 			cfile -> token_line = cfile -> prev_line;
 
@@ -283,6 +410,36 @@ enum dhcp_token peek_token (rval, rlen, cfile)
 	return cfile -> token;
 }
 
+
+/*
+ * Get the next token from cfile and return it, leaving it for a 
+ * subsequent call to next_token().
+ *
+ * Note that it WILL consume whitespace tokens.
+ *
+ * If rval is non-NULL, set the pointer it contains to 
+ * the contents of the token.
+ *
+ * If rlen is non-NULL, set the integer it contains to 
+ * the length of the token.
+ */
+
+enum dhcp_token
+peek_token(const char **rval, unsigned *rlen, struct parse *cfile) {
+	return do_peek_token(rval, rlen, cfile, ISC_FALSE);
+}
+
+
+/*
+ * The same as the peek_token() function above, but will return space
+ * as the WHITESPACE token.
+ */
+
+enum dhcp_token
+peek_raw_token(const char **rval, unsigned *rlen, struct parse *cfile) {
+	return do_peek_token(rval, rlen, cfile, ISC_TRUE);
+}
+
 static void skip_to_eol (cfile)
 	struct parse *cfile;
 {
@@ -291,14 +448,38 @@ static void skip_to_eol (cfile)
 		c = get_char (cfile);
 		if (c == EOF)
 			return;
-#ifdef OLD_LEXER
-		if (cfile -> comment_index < sizeof (cfile -> comments))
-			comments [cfile -> comment_index++] = c;
-#endif
 		if (c == EOL) {
 			return;
 		}
 	} while (1);
+}
+
+static enum dhcp_token
+read_whitespace(int c, struct parse *cfile) {
+	int ofs;
+
+	/*
+	 * Read as much whitespace as we have available.
+	 */
+	ofs = 0;
+	do {
+		cfile->tokbuf[ofs++] = c;
+		c = get_char(cfile);
+	} while (!((c == '\n') && cfile->eol_token) && 
+		 isascii(c) && isspace(c));
+
+	/*
+	 * Put the last (non-whitespace) character back.
+	 */
+	unget_char(cfile, c);
+
+	/*
+	 * Return our token.
+	 */
+	cfile->tokbuf[ofs] = '\0';
+	cfile->tlen = ofs;
+	cfile->tval = cfile->tokbuf;
+	return WHITESPACE;
 }
 
 static enum dhcp_token read_string (cfile)
@@ -371,7 +552,7 @@ static enum dhcp_token read_string (cfile)
 				} else
 					goto again;
 			} else {
-				if (c >= '0' && c <= '9') {
+				if (c >= '0' && c <= '7') {
 					value = value * 8 + (c - '0');
 				} else {
 				    if (value != 0) {
@@ -414,9 +595,6 @@ static enum dhcp_token read_number (c, cfile)
 	int c;
 	struct parse *cfile;
 {
-#ifdef OLD_LEXER
-	int seenx = 0;
-#endif
 	int i = 0;
 	int token = NUMBER;
 
@@ -424,7 +602,6 @@ static enum dhcp_token read_number (c, cfile)
 	for (; i < sizeof cfile -> tokbuf; i++) {
 		c = get_char (cfile);
 
-#ifndef OLD_LEXER
 		/* Promote NUMBER -> NUMBER_OR_NAME -> NAME, never demote.
 		 * Except in the case of '0x' syntax hex, which gets called
 		 * a NAME at '0x', and returned to NUMBER_OR_NAME once it's
@@ -458,26 +635,12 @@ static enum dhcp_token read_number (c, cfile)
 			 * token.  If not EOF, rewind the file one byte so
 			 * the next token is read from there.
 			 */
-			if(c != EOF) {
-				cfile->bufix--;
-				cfile->ugflag = 1;
-			}
+			unget_char(cfile, c);
 			goto end_read;
 
 		    default:
 			log_fatal("read_number():%s:%d: impossible case", MDL);
 		}
-#else /* OLD_LEXER */
-		if (!seenx && (c == 'x')) {
-			seenx = 1;
-		} else if (!isascii (c) || !isxdigit (c)) {
-			if (c != EOF) {
-				cfile -> bufix--;
-				cfile -> ugflag = 1;
-			}
-			break;
-		}
-#endif /* OLD_LEXER */
 
 		cfile -> tokbuf [i] = c;
 	}
@@ -493,7 +656,14 @@ static enum dhcp_token read_number (c, cfile)
 	cfile -> tlen = i;
 	cfile -> tval = cfile -> tokbuf;
 
-	return token;
+	/*
+	 * If this entire token from start to finish was "-", such as
+	 * the middle parameter in "42 - 7", return just the MINUS token.
+	 */
+	if ((i == 1) && (cfile->tokbuf[i] == '-'))
+		return MINUS;
+	else
+		return token;
 }
 
 static enum dhcp_token read_num_or_name (c, cfile)
@@ -507,10 +677,7 @@ static enum dhcp_token read_num_or_name (c, cfile)
 		c = get_char (cfile);
 		if (!isascii (c) ||
 		    (c != '-' && c != '_' && !isalnum (c))) {
-			if (c != EOF) {
-				cfile -> bufix--;
-				cfile -> ugflag = 1;
-			}
+		    	unget_char(cfile, c);
 			break;
 		}
 		if (!isxdigit (c))
@@ -524,17 +691,15 @@ static enum dhcp_token read_num_or_name (c, cfile)
 	cfile -> tokbuf [i] = 0;
 	cfile -> tlen = i;
 	cfile -> tval = cfile -> tokbuf;
-	return intern (cfile -> tval, rv);
+	return intern(cfile->tval, rv);
 }
 
-static enum dhcp_token intern (atom, dfv)
-	char *atom;
-	enum dhcp_token dfv;
-{
-	if (!isascii (atom [0]))
+static enum dhcp_token
+intern(char *atom, enum dhcp_token dfv) {
+	if (!isascii(atom[0]))
 		return dfv;
 
-	switch (tolower (atom [0])) {
+	switch (tolower((unsigned char)atom[0])) {
 	      case '-':
 		if (atom [1] == 0)
 			return MINUS;
@@ -563,6 +728,8 @@ static enum dhcp_token intern (atom, dfv)
 			return ALIAS;
 		if (!strcasecmp (atom + 1, "lgorithm"))
 			return ALGORITHM;
+		if (!strcasecmp (atom + 1, "lso"))
+			return TOKEN_ALSO;
 		if (!strcasecmp (atom + 1, "bandoned"))
 			return TOKEN_ABANDONED;
 		if (!strcasecmp (atom + 1, "dd"))
@@ -579,6 +746,8 @@ static enum dhcp_token intern (atom, dfv)
 			return TOKEN_ACTIVE;
 		if (!strcasecmp (atom + 1, "tsfp"))
 			return ATSFP;
+                if (!strcasecmp (atom + 1, "fter"))
+                        return AFTER;
 		break;
 	      case 'b':
 		if (!strcasecmp (atom + 1, "ackup"))
@@ -621,6 +790,8 @@ static enum dhcp_token intern (atom, dfv)
 			return CLASS;
 		if (!strcasecmp (atom + 1, "lose"))
 			return TOKEN_CLOSE;
+		if (!strcasecmp(atom + 1, "ompressed"))
+			return COMPRESSED;
 		if (!strcasecmp (atom + 1, "reate"))
 			return TOKEN_CREATE;
 		if (!strcasecmp (atom + 1, "iaddr"))
@@ -647,14 +818,20 @@ static enum dhcp_token intern (atom, dfv)
 			return CLTT;
 		break;
 	      case 'd':
+		if (!strcasecmp(atom + 1, "b-time-format"))
+			return DB_TIME_FORMAT;
 		if (!strcasecmp (atom + 1, "ns-update"))
 			return DNS_UPDATE;
 		if (!strcasecmp (atom + 1, "ns-delete"))
 			return DNS_DELETE;
 		if (!strcasecmp (atom + 1, "omain"))
 			return DOMAIN;
-		if (!strcasecmp (atom + 1, "omain-name"))
-			return DOMAIN_NAME;
+		if (!strncasecmp (atom + 1, "omain-", 6)) {
+			if (!strcasecmp(atom + 7, "name"))
+				return DOMAIN_NAME;
+			if (!strcasecmp(atom + 7, "list"))
+				return DOMAIN_LIST;
+		}
 		if (!strcasecmp (atom + 1, "o-forward-update"))
 			return DO_FORWARD_UPDATE;
 		if (!strcasecmp (atom + 1, "ebug"))
@@ -668,6 +845,8 @@ static enum dhcp_token intern (atom, dfv)
 		if (!strncasecmp (atom + 1, "efault", 6)) {
 			if (!atom [7])
 				return DEFAULT;
+			if (!strcasecmp(atom + 7, "-duid"))
+				return DEFAULT_DUID;
 			if (!strcasecmp (atom + 7, "-lease-time"))
 				return DEFAULT_LEASE_TIME;
 			break;
@@ -697,7 +876,8 @@ static enum dhcp_token intern (atom, dfv)
 		}
 		break;
 	      case 'e':
-		if (isascii (atom [1]) && tolower (atom [1]) == 'x') {
+		if (isascii (atom [1]) && 
+		    tolower((unsigned char)atom[1]) == 'x') {
 			if (!strcasecmp (atom + 2, "tract-int"))
 				return EXTRACT_INT;
 			if (!strcasecmp (atom + 2, "ists"))
@@ -711,6 +891,8 @@ static enum dhcp_token intern (atom, dfv)
 		}
 		if (!strcasecmp (atom + 1, "ncode-int"))
 			return ENCODE_INT;
+		if (!strcasecmp(atom + 1, "poch"))
+			return EPOCH;
 		if (!strcasecmp (atom + 1, "thernet"))
 			return ETHERNET;
 		if (!strcasecmp (atom + 1, "nds"))
@@ -728,6 +910,11 @@ static enum dhcp_token intern (atom, dfv)
 			return EVAL;
 		if (!strcasecmp (atom + 1, "ncapsulate"))
 			return ENCAPSULATE;
+		if (!strcasecmp(atom + 1, "xecute"))
+			return EXECUTE;
+		if (!strcasecmp(atom+1, "n")) {
+			return EN;
+		}
 		break;
 	      case 'f':
 		if (!strcasecmp (atom + 1, "atal"))
@@ -736,8 +923,12 @@ static enum dhcp_token intern (atom, dfv)
 			return FILENAME;
 		if (!strcasecmp (atom + 1, "ixed-address"))
 			return FIXED_ADDR;
+		if (!strcasecmp (atom + 1, "ixed-address6"))
+			return FIXED_ADDR6;
+		if (!strcasecmp (atom + 1, "ixed-prefix6"))
+			return FIXED_PREFIX6;
 		if (!strcasecmp (atom + 1, "ddi"))
-			return FDDI;
+			return TOKEN_FDDI;
 		if (!strcasecmp (atom + 1, "ormerr"))
 			return NS_FORMERR;
 		if (!strcasecmp (atom + 1, "unction"))
@@ -756,12 +947,16 @@ static enum dhcp_token intern (atom, dfv)
 			return GET_LEASE_HOSTNAMES;
 		break;
 	      case 'h':
+		if (!strcasecmp(atom + 1, "ash"))
+			return HASH;
 		if (!strcasecmp (atom + 1, "ba"))
 			return HBA;
 		if (!strcasecmp (atom + 1, "ost"))
 			return HOST;
 		if (!strcasecmp (atom + 1, "ost-decl-name"))
 			return HOST_DECL_NAME;
+		if (!strcasecmp(atom + 1, "ost-identifier"))
+			return HOST_IDENTIFIER;
 		if (!strcasecmp (atom + 1, "ardware"))
 			return HARDWARE;
 		if (!strcasecmp (atom + 1, "ostname"))
@@ -770,6 +965,16 @@ static enum dhcp_token intern (atom, dfv)
 			return TOKEN_HELP;
 		break;
 	      case 'i':
+	      	if (!strcasecmp(atom+1, "a-na")) 
+			return IA_NA;
+	      	if (!strcasecmp(atom+1, "a-ta")) 
+			return IA_TA;
+	      	if (!strcasecmp(atom+1, "a-pd")) 
+			return IA_PD;
+	      	if (!strcasecmp(atom+1, "aaddr")) 
+			return IAADDR;
+	      	if (!strcasecmp(atom+1, "aprefix")) 
+			return IAPREFIX;
 		if (!strcasecmp (atom + 1, "nclude"))
 			return INCLUDE;
 		if (!strcasecmp (atom + 1, "nteger"))
@@ -780,6 +985,8 @@ static enum dhcp_token intern (atom, dfv)
 			return INFO;
 		if (!strcasecmp (atom + 1, "p-address"))
 			return IP_ADDRESS;
+		if (!strcasecmp (atom + 1, "p6-address"))
+			return IP6_ADDRESS;
 		if (!strcasecmp (atom + 1, "nitial-interval"))
 			return INITIAL_INTERVAL;
 		if (!strcasecmp (atom + 1, "nterface"))
@@ -805,27 +1012,53 @@ static enum dhcp_token intern (atom, dfv)
 			return KEY;
 		break;
 	      case 'l':
+		if (!strcasecmp (atom + 1, "case"))
+			return LCASE;
 		if (!strcasecmp (atom + 1, "ease"))
 			return LEASE;
+		if (!strcasecmp(atom + 1, "ease6"))
+			return LEASE6;
 		if (!strcasecmp (atom + 1, "eased-address"))
 			return LEASED_ADDRESS;
 		if (!strcasecmp (atom + 1, "ease-time"))
 			return LEASE_TIME;
+		if (!strcasecmp(atom + 1, "easequery"))
+			return LEASEQUERY;
+		if (!strcasecmp(atom + 1, "ength"))
+			return LENGTH;
 		if (!strcasecmp (atom + 1, "imit"))
 			return LIMIT;
 		if (!strcasecmp (atom + 1, "et"))
 			return LET;
 		if (!strcasecmp (atom + 1, "oad"))
 			return LOAD;
+		if (!strcasecmp(atom + 1, "ocal"))
+			return LOCAL;
 		if (!strcasecmp (atom + 1, "og"))
 			return LOG;
+		if (!strcasecmp(atom+1, "lt")) {
+			return LLT;
+		}
+		if (!strcasecmp(atom+1, "l")) {
+			return LL;
+		}
 		break;
 	      case 'm':
 		if (!strncasecmp (atom + 1, "ax", 2)) {
 			if (!atom [3])
 				return TOKEN_MAX;
-			if (!strcasecmp (atom + 3, "-lease-time"))
-				return MAX_LEASE_TIME;
+			if (!strcasecmp (atom + 3, "-balance"))
+				return MAX_BALANCE;
+			if (!strncasecmp (atom + 3, "-lease-", 7)) {
+				if (!strcasecmp(atom + 10, "misbalance"))
+					return MAX_LEASE_MISBALANCE;
+				if (!strcasecmp(atom + 10, "ownership"))
+					return MAX_LEASE_OWNERSHIP;
+				if (!strcasecmp(atom + 10, "time"))
+					return MAX_LEASE_TIME;
+			}
+			if (!strcasecmp(atom + 3, "-life"))
+				return MAX_LIFE;
 			if (!strcasecmp (atom + 3, "-transmit-idle"))
 				return MAX_TRANSMIT_IDLE;
 			if (!strcasecmp (atom + 3, "-response-delay"))
@@ -834,6 +1067,8 @@ static enum dhcp_token intern (atom, dfv)
 				return MAX_UNACKED_UPDATES;
 		}
 		if (!strncasecmp (atom + 1, "in-", 3)) {
+			if (!strcasecmp (atom + 4, "balance"))
+				return MIN_BALANCE;
 			if (!strcasecmp (atom + 4, "lease-time"))
 				return MIN_LEASE_TIME;
 			if (!strcasecmp (atom + 4, "secs"))
@@ -870,7 +1105,7 @@ static enum dhcp_token intern (atom, dfv)
 		if (!strcasecmp (atom + 1, "ot"))
 			return TOKEN_NOT;
 		if (!strcasecmp (atom + 1, "o"))
-			return NO;
+			return TOKEN_NO;
 		if (!strcasecmp (atom + 1, "s-update"))
 			return NS_UPDATE;
 		if (!strcasecmp (atom + 1, "oerror"))
@@ -913,10 +1148,14 @@ static enum dhcp_token intern (atom, dfv)
 	      case 'p':
 		if (!strcasecmp (atom + 1, "repend"))
 			return PREPEND;
+		if (!strcasecmp(atom + 1, "referred-life"))
+			return PREFERRED_LIFE;
 		if (!strcasecmp (atom + 1, "acket"))
 			return PACKET;
 		if (!strcasecmp (atom + 1, "ool"))
 			return POOL;
+		if (!strcasecmp (atom + 1, "refix6"))
+			return PREFIX6;
 		if (!strcasecmp (atom + 1, "seudo"))
 			return PSEUDO;
 		if (!strcasecmp (atom + 1, "eer"))
@@ -944,6 +1183,9 @@ static enum dhcp_token intern (atom, dfv)
 			return RESOLUTION_INTERRUPTED;
 		if (!strcasecmp (atom + 1, "ange"))
 			return RANGE;
+		if (!strcasecmp(atom + 1, "ange6")) {
+			return RANGE6;
+		}
 		if (!strcasecmp (atom + 1, "ecover"))
 			return RECOVER;
 		if (!strcasecmp (atom + 1, "ecover-done"))
@@ -988,71 +1230,136 @@ static enum dhcp_token intern (atom, dfv)
 			return REFRESH;
 		break;
 	      case 's':
-		if (!strcasecmp (atom + 1, "tate"))
-			return STATE;
-		if (!strcasecmp (atom + 1, "ecret"))
-			return SECRET;
-		if (!strcasecmp (atom + 1, "ervfail"))
-			return NS_SERVFAIL;
-		if (!strcasecmp (atom + 1, "witch"))
-			return SWITCH;
-		if (!strcasecmp (atom + 1, "igned"))
-			return SIGNED;
-		if (!strcasecmp (atom + 1, "tring"))
-			return STRING_TOKEN;
-		if (!strcasecmp (atom + 1, "uffix"))
-			return SUFFIX;
-		if (!strcasecmp (atom + 1, "earch"))
-			return SEARCH;
-		if (!strcasecmp (atom + 1, "tarts"))
-			return STARTS;
-		if (!strcasecmp (atom + 1, "iaddr"))
-			return SIADDR;
-		if (!strcasecmp (atom + 1, "hared-network"))
-			return SHARED_NETWORK;
-		if (!strcasecmp (atom + 1, "econdary"))
-			return SECONDARY;
-		if (!strcasecmp (atom + 1, "erver-name"))
-			return SERVER_NAME;
-		if (!strcasecmp (atom + 1, "erver-identifier"))
-			return SERVER_IDENTIFIER;
-		if (!strcasecmp (atom + 1, "erver"))
-			return SERVER;
-		if (!strcasecmp (atom + 1, "elect-timeout"))
-			return SELECT_TIMEOUT;
-		if (!strcasecmp (atom + 1, "elect"))
-			return SELECT;
-		if (!strcasecmp (atom + 1, "end"))
-			return SEND;
-		if (!strcasecmp (atom + 1, "cript"))
-			return SCRIPT;
-		if (!strcasecmp (atom + 1, "upersede"))
-			return SUPERSEDE;
-		if (!strncasecmp (atom + 1, "ub", 2)) {
-			if (!strcasecmp (atom + 3, "string"))
-				return SUBSTRING;
-			if (!strcasecmp (atom + 3, "net"))
-				return SUBNET;
-			if (!strcasecmp (atom + 3, "class"))
-				return SUBCLASS;
+                if (!strcasecmp(atom + 1, "cript"))
+                        return SCRIPT;
+		if (isascii(atom[1]) && 
+		    tolower((unsigned char)atom[1]) == 'e') {
+                        if (!strcasecmp(atom + 2, "arch"))
+                                return SEARCH;
+			if (isascii(atom[2]) && 
+			    tolower((unsigned char)atom[2]) == 'c') {
+				if (!strncasecmp(atom + 3, "ond", 3)) {
+                                        if (!strcasecmp(atom + 6, "ary"))
+                                                return SECONDARY;
+                                        if (!strcasecmp(atom + 6, "s"))
+                                                return SECONDS;
+					break;
+				}
+                                if (!strcasecmp(atom + 3, "ret"))
+                                        return SECRET;
+				break;
+			}
+			if (!strncasecmp(atom + 2, "lect", 4)) {
+                                if (atom[6] == '\0')
+                                        return SELECT;
+                                if (!strcasecmp(atom + 6, "-timeout"))
+                                        return SELECT_TIMEOUT;
+				break;
+			}
+                        if (!strcasecmp(atom + 2, "nd"))
+                                return SEND;
+			if (!strncasecmp(atom + 2, "rv", 2)) {
+				if (!strncasecmp(atom + 4, "er", 2)) {
+                                        if (atom[6] == '\0')
+                                                return TOKEN_SERVER;
+					if (atom[6] == '-') {
+						if (!strcasecmp(atom + 7,
+								"duid")) 
+							return SERVER_DUID;
+                                                if (!strcasecmp(atom + 7,
+								"name"))
+                                                        return SERVER_NAME;
+                                                if (!strcasecmp(atom + 7,
+								"identifier"))
+                                                      return SERVER_IDENTIFIER;
+						break;
+					}
+					break;
+				}
+                                if (!strcasecmp(atom + 4, "fail"))
+                                        return NS_SERVFAIL;
+				break;
+			}
+                        if (!strcasecmp(atom + 2, "t"))
+                                return TOKEN_SET;
 			break;
 		}
-		if (!strcasecmp (atom + 1, "pawn"))
-			return SPAWN;
-		if (!strcasecmp (atom + 1, "pace"))
-			return SPACE;
-		if (!strcasecmp (atom + 1, "tatic"))
-			return STATIC;
-		if (!strcasecmp (atom + 1, "plit"))
-			return SPLIT;
-		if (!strcasecmp (atom + 1, "et"))
-			return TOKEN_SET;
-		if (!strcasecmp (atom + 1, "econds"))
-			return SECONDS;
-		if (!strcasecmp (atom + 1, "hutdown"))
-			return SHUTDOWN;
-		if (!strcasecmp (atom + 1, "tartup"))
-			return STARTUP;
+		if (isascii(atom[1]) && 
+		    tolower((unsigned char)atom[1]) == 'h') {
+                        if (!strcasecmp(atom + 2, "ared-network"))
+                                return SHARED_NETWORK;
+                        if (!strcasecmp(atom + 2, "utdown"))
+                                return SHUTDOWN;
+			break;
+		}
+		if (isascii(atom[1]) && 
+		    tolower((unsigned char)atom[1]) == 'i') {
+                        if (!strcasecmp(atom + 2, "addr"))
+                                return SIADDR;
+                        if (!strcasecmp(atom + 2, "gned"))
+                                return SIGNED;
+                        if (!strcasecmp(atom + 2, "ze"))
+                                return SIZE;
+			break;
+		}
+		if (isascii(atom[1]) && 
+		    tolower((unsigned char)atom[1]) == 'p') {
+			if (isascii(atom[2]) && 
+			    tolower((unsigned char)atom[2]) == 'a') {
+                                if (!strcasecmp(atom + 3, "ce"))
+                                        return SPACE;
+                                if (!strcasecmp(atom + 3, "wn"))
+                                        return SPAWN;
+				break;
+			}
+                        if (!strcasecmp(atom + 2, "lit"))
+                                return SPLIT;
+			break;
+		}
+		if (isascii(atom[1]) && 
+		    tolower((unsigned char)atom[1]) == 't') {
+			if (isascii(atom[2]) && 
+			    tolower((unsigned char)atom[2]) == 'a') {
+				if(!strncasecmp(atom + 3, "rt", 2)) {
+                                         if (!strcasecmp(atom + 5, "s"))
+                                                 return STARTS;
+                                         if (!strcasecmp(atom + 5, "up"))
+                                                 return STARTUP;
+					break;
+				}
+				if (isascii(atom[3]) &&
+				    tolower((unsigned char)atom[3]) == 't') {
+                                        if (!strcasecmp(atom + 4, "e"))
+                                                return STATE;
+                                        if (!strcasecmp(atom + 4, "ic"))
+                                                return STATIC;
+					break;
+				}
+			}
+                        if (!strcasecmp(atom + 2, "ring"))
+                                return STRING_TOKEN;
+			break;
+		}
+                if (!strncasecmp(atom + 1, "ub", 2)) {
+                        if (!strcasecmp(atom + 3, "class"))
+                                return SUBCLASS;
+                        if (!strcasecmp(atom + 3, "net"))
+                                return SUBNET;
+                        if (!strcasecmp(atom + 3, "net6"))
+                                return SUBNET6;
+                        if (!strcasecmp(atom + 3, "string"))
+                                return SUBSTRING;
+                        break;
+                }
+		if (isascii(atom[1]) && 
+		    tolower((unsigned char)atom[1]) == 'u') {
+                        if (!strcasecmp(atom + 2, "ffix"))
+                                return SUFFIX;
+                        if (!strcasecmp(atom + 2, "persede"))
+                                return SUPERSEDE;
+		}
+                if (!strcasecmp(atom + 1, "witch"))
+                        return SWITCH;
 		break;
 	      case 't':
 		if (!strcasecmp (atom + 1, "imestamp"))
@@ -1069,8 +1376,12 @@ static enum dhcp_token intern (atom, dfv)
 			return TSFP;
 		if (!strcasecmp (atom + 1, "ransmission"))
 			return TRANSMISSION;
+		if (!strcasecmp(atom + 1, "emporary"))
+			return TEMPORARY;
 		break;
 	      case 'u':
+		if (!strcasecmp (atom + 1, "case"))
+			return UCASE;
 		if (!strcasecmp (atom + 1, "nset"))
 			return UNSET;
 		if (!strcasecmp (atom + 1, "nsigned"))
@@ -1097,7 +1408,7 @@ static enum dhcp_token intern (atom, dfv)
 			break;
 		}
 		if (!strcasecmp (atom + 1, "nauthenticated"))
-			return AUTHENTICATED;
+			return UNAUTHENTICATED;
 		if (!strcasecmp (atom + 1, "pdated-dns-rr"))
 			return UPDATED_DNS_RR;
 		if (!strcasecmp (atom + 1, "pdate"))
@@ -1112,6 +1423,8 @@ static enum dhcp_token intern (atom, dfv)
 	      case 'w':
 		if (!strcasecmp (atom + 1, "ith"))
 			return WITH;
+		if (!strcasecmp(atom + 1, "idth"))
+			return WIDTH;
 		break;
 	      case 'y':
 		if (!strcasecmp (atom + 1, "iaddr"))
@@ -1122,6 +1435,8 @@ static enum dhcp_token intern (atom, dfv)
 			return NS_YXRRSET;
 		break;
 	      case 'z':
+		if (!strcasecmp (atom + 1, "erolen"))
+			return ZEROLEN;
 		if (!strcasecmp (atom + 1, "one"))
 			return ZONE;
 		break;

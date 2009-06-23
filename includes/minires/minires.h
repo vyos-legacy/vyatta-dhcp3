@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004,2007-2008 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 2001-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -20,6 +20,8 @@
  *   <info@isc.org>
  *   http://www.isc.org/
  */
+#ifndef MINIRES_H
+#define MINIRES_H
 
 #include "cdefs.h"
 #include "osdep.h"
@@ -44,6 +46,13 @@ int minires_nmkupdate (res_state, ns_updrec *, double *, unsigned *);
 isc_result_t minires_nupdate (res_state, ns_updrec *);
 int minires_ninit (res_state);
 ns_rcode isc_rcode_to_ns (isc_result_t);
+
+int MRns_name_compress(const char *, u_char *, size_t, const unsigned char **,
+		       const unsigned char **);
+int MRns_name_unpack(const unsigned char *, const unsigned char *,
+		     const unsigned char *, unsigned char *, size_t);
+int MRns_name_ntop(const unsigned char *, char *, size_t);
+int MRns_name_pton(const char *, u_char *, size_t);
 
 #if defined (MINIRES_LIB)
 #define res_update minires_update
@@ -111,7 +120,8 @@ ns_rcode isc_rcode_to_ns (isc_result_t);
 #define b64_ntop MRb64_ntop
 
 extern const struct res_sym __p_type_syms[];
-extern time_t cur_time;
+extern struct timeval cur_tv;
+#define cur_time cur_tv.tv_sec
 
 int dn_comp (const char *,
 	     unsigned char *, unsigned, unsigned char **, unsigned char **);
@@ -121,13 +131,11 @@ void  res_buildservicelist (void);
 void res_destroyservicelist (void);
 void res_buildprotolist(void);
 void res_destroyprotolist(void);
-int res_servicenumber(const char *);
-int res_protocolnumber(const char *);
 const char *res_protocolname(int);
 const char *res_servicename(u_int16_t, const char *);
 u_int32_t ns_datetosecs (const char *cp, int *errp);
 int b64_pton (char const *, unsigned char *, size_t);
-unsigned int res_randomid (void);
+u_int res_randomid(void);
 isc_result_t res_findzonecut (res_state, const char *, ns_class, int, char *,
 			      size_t, struct in_addr *, int, int *, void *);
 isc_result_t res_nsend (res_state,
@@ -187,14 +195,8 @@ isc_result_t ns_sign_tcp_init (void *, const unsigned char *,
 			       unsigned, ns_tcp_tsig_state *);
 isc_result_t ns_sign_tcp (unsigned char *,
 			  unsigned *, unsigned, int, ns_tcp_tsig_state *, int);
-int ns_name_ntop (const unsigned char *, char *, size_t);
-int ns_name_pton (const char *, unsigned char *, size_t);
-int ns_name_unpack (const unsigned char *, const unsigned char *,
-		    const unsigned char *, unsigned char *, size_t);
 int ns_name_pack (const unsigned char *, unsigned char *,
 		  unsigned, const unsigned char **, const unsigned char **);
-int ns_name_compress (const char *, unsigned char *,
-		      size_t, const unsigned char **, const unsigned char **);
 int ns_name_skip (const unsigned char **, const unsigned char *);
 int ns_subdomain (const char *, const char *);
 unsigned char *ns_find_tsig (unsigned char *, unsigned char *);
@@ -228,3 +230,5 @@ isc_result_t ns_rcode_to_isc (int);
 #if defined (TRACING)
 void trace_mr_statp_setup (res_state);
 #endif
+
+#endif /* MINIRES_H */

@@ -3,7 +3,7 @@
    Handling for client classes. */
 
 /*
- * Copyright (c) 2004 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004,2007 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1998-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -31,12 +31,6 @@
  * see ``http://www.vix.com''.   To learn more about Nominum, Inc., see
  * ``http://www.nominum.com''.
  */
-
-#ifndef lint
-static char copyright[] =
-"$Id: class.c,v 1.29.2.4 2004/06/10 17:59:51 dhankins Exp $ Copyright (c) 2004 Internet Systems Consortium.  All rights reserved.\n";
-
-#endif /* not lint */
 
 #include "dhcpd.h"
 
@@ -190,7 +184,8 @@ int check_collection (packet, lease, collection)
 						  MDL);
 				data_string_forget (&data, MDL);
 				if (!class -> hash)
-				    class_new_hash (&class -> hash, 0, MDL);
+				    class_new_hash(&class->hash,
+						   SCLASS_HASH_SIZE, MDL);
 				class_hash_add (class -> hash,
 						(const char *)
 						nc -> hash_string.data,
@@ -218,6 +213,29 @@ void classify (packet, class)
 				     packet -> raw -> chaddr));
 }
 
+
+isc_result_t unlink_class(struct class **class) {
+	struct collection *lp;
+	struct class *cp, *pp;
+
+	for (lp = collections; lp; lp = lp -> next) {
+		for (pp = 0, cp = lp -> classes; cp; pp = cp, cp = cp -> nic)
+			if (cp == *class) {
+				if (pp == 0) {
+					lp->classes = cp->nic;
+				} else {
+					pp->nic = cp->nic;
+				}
+				cp->nic = 0;
+				class_dereference(class, MDL);
+
+				return ISC_R_SUCCESS;
+			}
+	}
+	return ISC_R_NOTFOUND;
+}
+
+	
 isc_result_t find_class (struct class **class, const char *name,
 			 const char *file, int line)
 {

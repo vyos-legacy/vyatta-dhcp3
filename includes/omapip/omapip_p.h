@@ -3,7 +3,7 @@
    Private master include file for the OMAPI library. */
 
 /*
- * Copyright (c) 2004 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004,2007 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1996-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -57,8 +57,11 @@
 #include <ctype.h>
 #include <time.h>
 
+/*
+ * XXX: I'm not sure why these were here.
 #include "cdefs.h"
 #include "osdep.h"
+ */
 
 #include <isc-dhcp/dst.h>
 #include <isc-dhcp/result.h>

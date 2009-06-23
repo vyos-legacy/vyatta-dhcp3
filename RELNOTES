@@ -1,101 +1,652 @@
 	      Internet Systems Consortium DHCP Distribution
-			      Version 3.0.6
-			      June 29, 2007
+		              Version 4.1.0
+			     5 December 2008
 
 			      Release Notes
 
-		     IMPORTANT NEWS IN THIS RELEASE
+			      NEW FEATURES
 
-FAILOVER:  As of version 3.0.4, ISC has included a fix for an insidious
-bug in the failover implementation which, if left unchecked, could result
-in tying up all leases in transitional states (such as released, reset, or
-expired).  The crux of the problem is the lack of retransmission of leases
-that rest in these states.  The only way to solve this problem is to carry
-additional state on the lease data structures to indicate acknowledgement
-state.
+ISC DHCP 4.1.x includes several new DHCPv6 features that were not included
+in DHCP 4.0.x.  These include:
 
-To these ends, 'ATSFP', or Actual Time Sent From Peer, is now included
-on lease state structures found in your dhcpd.leases file.  This value
-is identical to TSFP - the exception is that it is zeroed upon every
-change to a lease that would necessitate a binding update, and it is
-what is used to govern retransmission.
+- Support for the rapid-commit option on the client side
 
-The presence of this new value on lease state structures presents an
-operational dilemma.  Since a zero value is normal, and there is no way
-to version the dhcpd.leases file, if you simply start dhcpd 3.0.4 using
-a dhcpd.leases file written by a pre-3.0.4 daemon, it will cause the
-daemon to retransmit -all- leases upon connecting the failover channel
-(the zero value is sensed to cause a retransmission).
+- Prefix Delegation support
 
-This is harmless, or even beneficial if your lease databases are slightly
-out of sync, but undesirable if you have a very large number of
-failover-controlled leases.  
+- IA_TA address support
 
-As a workaround, simply synthesize an 'atsfp' dhcpd.leases entry for each
-lease from the most recent 'tsfp' value.  For example (all on one line):
+- A basic DHCPv6 relay agent
 
-	awk '/^  tsfp / { printf("%s\n  atsfp %s %s %s\n", $0, $2, $3, $4);
-			next; } // { print $0; }' /var/db/dhcpd.leases
+- Basic and partial DHCPv6 leasequery support
 
-Similarly, in the event it is necessary to downgrade from 3.0.4 to any
-previous version, the atsfp values will need to be removed in order to
-successfully start:
+There are a number of DHCPv6 limitations and features missing in this
+release, which will be addressed in the future:
 
-	grep -v '^  atsfp ' /var/db/dhcpd.leases
+- Only Solaris, Linux, FreeBSD, NetBSD, and OpenBSD are supported.
 
-			     NEW FEATURES
+- Only a single address is supported per IA.
 
-Version 3 of the ISC DHCP Distribution includes the following features
-that are new since version 2.0:
+- DHCPv6 includes human-readable text in status code messages. These
+  should be configurable, and probably localized via gettext() or the
+  like.
 
-     - DHCP Failover Protocol support
-     - OMAPI, an API for accessing and modifying the DHCP server and
-       client state.
-     - Conditional behaviour
-     - Storing arbitrary information on leases
-     - Address pools with access control
-     - Client classing
-     - Address allocation restriction by class
-     - Relay agent information option support 
-     - Dynamic DNS updates
-     - Many bug fixes, performance enhancements, and minor new DHCP
-       protocol features. 
+- The "host-identifier" option is limited to a simple token.
 
-If you are running 3.0 beta 1 and are doing dynamic DNS updates, the
-lease file is no longer forward-compatible to 3.0 final.   A script
-has been provided to convert 3.0b1 lease files.   This is in
-contrib/3.0b1-lease-convert.
+- The client and server can only operate DHCPv4 or DHCPv6 at a time,
+  not both.  To use both protocols simultaneously, two instances of the
+  relevant daemon are required, one with the '-6' command line option.
 
-For information on how to install, configure and run this software,
-as well as how to find documentation and report bugs, please consult
-the README file.
+For information on how to install, configure and run this software, as
+well as how to find documentation and report bugs, please consult the
+README file.
 
-The Dynamic DNS Update support is a descendent of an implementation
-done by Lans Carstensen and Brian Dols at Rose-Hulman Institute of
-Technology, Jim Watt at Applied Biosystems, Irina Goble at Integrated
-Measurement Systems, Igor Sharfmesser at Kazakh Telecom, and Brian
-Murrell at BC Tel Advanced Communications.  I'd like to express my
-thanks to all of these good people here, both for working on the code
-and for prodding me into improving it.
+ISC DHCP uses standard GNU configure for installation. Please review the
+output of "./configure --help" to see what options are available.
 
+The system has only been tested on Linux, FreeBSD, and Solaris, and may not
+work on other platforms. Please report any problems and suggested fixes to
+<dhcp-users@isc.org>.
 
-			Changes since 3.0.6rc1
+                        Changes since 4.1.0b1
 
-- supersede_lease() now requeues leases in their respective hardware
-  address hash bucket.  This mirrors client identifier behaviour.
+- A missing "else" in dhcrelay.c could have caused an interface not to
+  be recognized.
 
-			Changes since 3.0.6b1
+			Changes since 4.1.0a2
 
-- None
+- A cosmetic bug in DHCPDECLINE processing was fixed which caused all
+  successful DHCPDECLINEs to be logged as "not found" rather than
+  "abandoned".
 
-			Changes since 3.0.5
+- Added configuration file examples for DHCPv6.
 
-- Assorted fixes for broken network devices:  Packet length is now
-  determined from the IP header length field to finally calculate the
-  UDP payload length, because some NIC drivers return more data than
-  they actually recived.
+- Some failover debugging #defines have been better defined and some
+  high frequency messages moved to a deeper debugging symbol.
 
-- UDP packets are now stored in aligned data structures.
+- The CLTT parameter in failover is now only updated by client activity,
+  and not by failover binding updates (taking on the peer's CLTT).
+
+- Failover BNDUPD messages are now discarded if they conflict with an
+  update that has been transmitted, but not acknowledged.
+
+- A bug cleaning up unknown-xxx temporary option definitions was fixed.
+
+- Delayed-ack is now a compile-time option, compiled out by default.
+  This feature is simply too experimental for right now, and causes
+  some problems to some failover installations.  We will revisit this
+  in future releases.
+
+- The !inet_pton() call in res_mkupdrec was adjusted to '<= 0' as
+  inet_pton returns either 1, 0, or -1.
+
+- A dhclient-script for MacOS X has been included, which enables
+  'dhclient -6' support.
+
+			Changes since 4.1.0a1
+
+- Corrected list of failover state values in dhcpd man page.
+
+- Fixed a bug that caused some request types to be logged incorrectly.
+
+- Clients that sent a parameter request list containing the
+  routers option before the subnet mask option were receiving
+  only the latter.  Fixed.
+
+- The server wasn't always sending the FQDN option when it should.
+
+- A partner-down failover server no longer emits 'peer holds all free leases'
+  if it is able to newly-allocate one of the peer's leases.
+
+- Fixed a coredump when adding a class via OMAPI.
+
+- Check whether files are zero length before trying to parse them.
+
+- Ari Edelkind's PARANOIA patch has been included and may be compiled in
+  via two ./configure parameters, --enable-paranoia and
+  --enable-early-chroot.
+
+- ./configure was extended to cover many optional build features, such
+  as failover, server tracing, debugging, and the execute() command.
+
+- There is now a default 1/4 of a second scheduled delay between delayed
+  fsync()'s, it can be configured by the max-ack-delay configuration
+  parameter.
+
+- A bug was fixed where the length of a hostname was miscalculated, so that
+  hosts were given odd-looking domain names ("foo.bar.ba.example.com").
+
+- Shared network selection should be done from the innermost relay
+  valid link-address field, rather than the outermost.
+
+- Prefix pools are attached to shared network scopes.
+
+- Merged IA_XX related structures.
+
+- Add DHCPv6 files in configure.
+
+- A memory leak when using omapi has been fixed.
+
+- DHCPv6 vendor-class options (VSIO) are now only sent when they appear
+  on the DHCPv6 ORO.  This resolves a bug where VSIO options were placed
+  in IA_NA encapsulated options fields.
+
+- Integrated client with stateless, temporary address and prefix delegation
+  support.
+
+- A double-dereference in dhclient transmission of DHCPDECLINEs was
+  repaired.
+
+- Fix handling of format code 'Z'.
+
+- Support "-1" argument in DHCPv6.
+
+- Merge DHCPv6-only "dhcrelay6" into general-purpose "dhcrelay" (use
+  "-6" option to select DHCPv6 mode).
+
+- Fix handling of -A and -a flags in dhcrelay; it was failing to expand
+  packet size as needed to add relay agent options.
+
+- A bug in subnet6 parsing where options contained in subnet6 clauses would
+  not be applied to clients addressed within that network was repaired.
+
+- When configuring a "subnet {}" or "subnet6 {}" without an explicit
+  shared-network enclosing it, the DHCP software would synthesize a
+  shared-network to contain the subnet.  However, all configuration
+  parameters within the subnet more intuitively belong "to any client
+  on that interface", or rather the synthesized shared-network.  So,
+  when a shared-network is synthesized, it is used to contain the
+  configuration present inside the subnet {} clause.  This means that
+  the configuration will be valid for all clients on that network, not
+  just those addressed out of the stated subnet.  If you intended the
+  opposite, the workaround is to explicitly configure an empty
+  shared-network.
+
+- A bug was fixed where Information-Request processing was not sourcing
+  configured option values.
+
+- A warning was added since the DHCPv6 processing software does not yet
+  support class statements.
+
+- Compliation warnings on GCC 4.3 relating to bootp source address
+  selection were repaired.
+
+- The v6 BSD socket method was updated to use a single UDP BSD socket
+  no matter how many interfaces are involved, differentiating the
+  interfaces the packets were received on by the interface index supplied
+  by the OS.
+
+- The relay agent no longer listens to the All DHCP Servers Multicast
+  address.
+
+- A bug was fixed in data_string_sprintfa() where va_start was only called
+  once for two invocations of vsprintf() variants.
+
+- ERO (RFC 4994) server support.
+
+- Basic and partial DHCPv6 leasequery support.
+
+- Reliable DHCPv6 release (previous behavior, send release and exit, is
+  still available with dhclient -6 -1 -r).
+
+			Changes since 4.0.0 (new features)
+
+- Added DHCPv6 rapid commit support.
+
+- Added explicit parser support for zero-length DHCP options, such as
+  rapid-commit, via format code 'Z'.
+
+- It's now possible to update the "ends" field of a lease with OMAPI.
+  This is useful if you want not only to release a lease, but also make
+  it available for reuse right away.  Hat tip to Christof Chen.
+
+- Fixed definition of the iaaddr hash functions to use the correct 
+  functions when referencing and dereferencing memory.
+
+- Some definitions not in phase with the IANA registry were updated.
+
+- Allocated interface IDs are better controlled ('u' bit set to zero,
+  reserved IDs avoided).
+
+- Unicast options are taken into account only for RENEWs.
+
+- NoAddrsAvail answers to SOLICITs are always ADVERTISEs even when a SOLICIT
+  carries a rapid-commit option.
+
+- Return in place of raise an impossible condition when one tries to release
+  an empty active lease.
+
+- Timer granularity is now 1/100s in the DHCPv6 client.
+
+- The dhclient-script was updated to create a host route for the default
+  gateway if the supplied subnet mask for an IPv4 address was a /32.  This
+  allows the client to work in 'captive' network environments, where the
+  operator does not want clients to crosstalk directly.
+
+- MINUS tokens should be parseable again.
+
+- Multiple (up to "delayed-ack x;" maximum) DHCPv4 packets are now queued and
+  released in bursts after single fsync() events when the upper limit is
+  reached or if the receiving sockets go dry.  The practical upshot is
+  that fsync-coupled server performance is now multiplicitively increased.
+  The default delayed ack limit is 28.  Thanks entirely to a patch from
+  Christof Chen.
+
+			Changes since 4.0.0 (bug fixes)
+
+- DHCP now builds on AIX.
+
+- Exit with warning when DHCPv6-specific statements are used in the
+  config file but -6 is not specified.
+
+- Fixed "--version" flag in dhcrelay
+
+- The 'min-secs' configuration parameter's log message has been updated to
+  be more helpful.
+
+- The warning logged when an address range doesn't fit in the subnets
+  they were declared has been updated to be more helpful and identify the
+  typo in configuration that created the spanning addresses.
+
+- A bug in failover pool rebalancing that caused POOLREQ message ping-pongs
+  was repaired.
+
+- A flaw in failover pool rebalancing that could cause POOLREQ messages to
+  be sent outside of the min-balance/max-balance scheduled intervals has
+  been repaired.
+
+- A cosmetic bug during potential-conflict recovery that caused the peer's
+  'conflict-done' state message to be logged as 'unknown-state' has been
+  repaired.  It is now logged correctly.
+
+- A bug was fixed where the 'giaddr' may be used to find the client's subnet
+  rather than its own 'ciaddr'.
+
+- A log message was introduced to clarify the situation where a failover
+  'address' parameter (the server's local address) did not resolve to an
+  IPv4 address.
+
+- The minimum site code value was set to 224 in 3.1.0 to track RFC3942.  This
+  broke a lot of legacy site local configurations.  The new code in place will
+  track site local space minimum option codes and logs a warning to encourage
+  updates and exploration of site local code migration problems.  Option
+  codes less than 128 in site local spaces remain inaccessible.
+
+- A possible relay agent option bug was repaired where random server
+  initialization state may have been used to signal the relay agent
+  information options sub-option code for the 'END' of the option space.
+
+- Fixes to allow code to compile and run on Solaris 9.
+
+- Fixes to allow code to compile on Mac OS X Leopard (10.5).
+
+- When server is configured with options that it overrides, a warning is
+  issued when the configuration file is read, rather than at the time the
+  option is overridden. This was important, because the warning was given
+  every time the option was overridden, which could create a lot of 
+  unnecessary logging.
+
+- Fixed a compilation problems on platforms that define a value for FDDI,
+  which conflicts with a dhcp configuration syntax token by the same name.
+
+- When a failover server suspects it has encountered a peer running a
+  version 3.0.x failover server, a warning that the failover wire protocol
+  is incompatible is printed.
+
+- The failover server no longer issues a floating point error if it encounters
+  a previously undefined option code.
+
+- Fix startup error messages to report a missing "subnet6 declaration", rather
+  than a missing "subnet declaration", when running as a DHCPv6 server.
+
+- DHCPv6 client timestamp in DUID was based on the year 1970 rather 
+  than the year 2000.
+
+- Warn when attempting to use a hardware parameter in DHCPv6.
+
+- DHCPv6 released resources are now marked as released by the client.
+
+- 'Soft' bindings have no more side-effects.
+
+			Changes since 4.0.0b3
+
+- The reverse dns name for PTR updates on IPv6 addresses has been fixed to
+  use ip6.arpa. rather than default to in-addr.arpa and require user
+  configuration.
+
+- dhc6_lease_destroy() and dhc6_ia_destroy() now set lease and IA pointers
+  to NULL after freeing, to prevent subsequent accesses to freed memory.
+
+- The DHCPv6 server would not send the preference option unless the 
+  client requested it, via the ORO. This has been fixed, so the DHCPv6
+  server will always send the preference value if it is configured.
+
+- When addresses were passed as hints to the server in an IA, they were 
+  incorrectly handled, sometimes being treated as an error. Now the 
+  server will treat these as hints and ignore them if it cannot supply
+  a requested address.
+
+- If the client had multiple addresses, and one expired (was not renewed
+  by the server), the client would continue to attempt to renew the same
+  old address over and over.  Now, the client will omit any expired
+  addresses from future Confirm, Renew, or Rebind messages.
+
+- dhclient -6 will now select renew/rebind timers based upon the longest
+  address expiration time rather than the shortest expiration time, in
+  order to avoid cascading renewals in the event a server elects not to
+  extend one of multiple IAADDR leases.
+
+- The server now limits clients that request multiple addresses to one
+  address per IA by default, which can be adjusted through the
+  "limit-addrs-per-ia" configuration option.
+
+- The DHCPv6 client now issues fresh transaction IDs on Renew and Rebind
+  message exchanges, rather than using the most recent ID.
+
+- The DHCPv6 server now replies to Information-Request messages.
+
+- A bug was fixed in the dhclient-script for BSDs to correctly carry error
+  codes through some conditions.
+
+- The parsing of some options in the dhclient lease file, in particular
+  the success DHCPv6 status-code, was fixed.
+
+- A bug was fixed that caused the DHCPv6 ORO option to be corrupted with
+  seemingly random values.
+
+- A reference overleak in DHCPv6 shared network processing was repaired.
+
+- ./configure now autodetects local database locations rather than trying
+  to put dhcpd.leases and dhclient.leases in /usr/local/var/db, which no
+  one ever has.
+
+- Regression fix for bug where server advertised a IPv6 address in 
+  response to a SOLICIT but would not return the address in response 
+  to a REQUEST.
+
+- A bug was fixed where the DHCPv6 server puts the NoAddrsAvail status
+  code in the IA_NA was fixed.  The status code now appears in the root
+  level.
+
+			Changes since 4.0.0b2
+
+- Clarified error message when lease limit exceeded
+
+- Relative time may now be used as a qualifier for 'allow' and 'deny' access
+  control lists.  These directives may be used to assist in re-addressing
+  address pools without having to constantly reconfigure the server.  Please
+  see 'man dhcpd.conf' for more information on allow/deny 'after time' syntax.
+  Thanks to a patch from Christof Chen.
+
+- The server will now include multiple IA_NA's and multiple IAADDRs within
+  them, if advertised by the client.  It still only seeks to allocate one
+  new address.
+
+			Changes since 4.0.0b1
+
+- Use different paths for PID and lease files when running in DHCPv4
+  or DHCPv6 mode, so that servers for both protcols can be run
+  simultaneously on a single interface.
+
+- Fixed a buffer overflow error which could have allowed a denial
+  of service under unusual server configurations
+
+- Eliminated a spurious error message from the client
+
+- A number of bugs with the internal handling of lease state on the 
+  server have been fixed. Some of these could cause server crashes.
+
+- The peer_wants_leases() changes pulled up from 3.1.0 were corrected,
+  'never used' leases will no longer consistently shift between servers
+  on every pool rebalance run.
+
+- sendmsg()/recvmsg() control buffers are now declared in such a way to
+  ensure they are correctly aligned on all (esp. 64-bit) architectures.
+
+- The client leasing subsystem was streamlined and corrected to account
+  more closely for changes in client link attachment selection.
+
+			Changes since 4.0.0a3
+
+- The DHCP server no longer requires a "ddns-update-style" statement, 
+  and now defaults to "none", which means DNS updates are disabled.
+
+- Log messages when failover peer names mismatch have been improved to
+  point out the problem.
+
+- Bug where server advertised a IPv6 address in response to a SOLICIT 
+  but would not return the address in response to a REQUEST. Thanks to
+  Dennis Kou for finding the bug.
+
+- Fixed an error causing the server to lock up on lease expiration,
+  reported independently by Jothilingam Vasu and Dennis Kou.
+
+- Fixed a ./configure bug where compile tests were failing due to
+  "-Werror" (unused variable) rather than the actual test failure.  Lead
+  to inconsistent and unworkable auto-configurations.
+
+- Compilation with DLPI and -Werror has been repaired.
+
+- Error in decoding IA_NA option if multiple interfaces are present 
+  fixed by Marcus Goller.
+
+- DHCPv6 server Confirm message processing has been enhanced - it no
+  longer replies only to clients with host {} records, it now replies
+  as directed in RFC3315 section 18.2.2 - that is, to all clients
+  regardless of the existence of bindings.
+
+- A core dump during expired lease cleanup has been repaired.
+
+- DDNS updates state information are now stored in 'binding scopes' that
+  follow the leases through their lifecycles.  This enables DDNS teardowns
+  on leases that are assigned and expired inbetween a server restart (the
+  state is recovered from dhcpd.leases).  Arbitrary user-specified binding
+  scopes ('set var = "value";') are not yet supported.
+
+- Additional compilation problems on HP/UX have been repaired.
+
+			Changes since 4.0.0a2
+
+- Fix for startup where there are no IPv4 addresses on an interface.
+  Thanks to Marcus Goller for reporting the bug.
+
+- Fixed file descriptor leak on listen failure. Thanks to Tom Clark.
+
+- Bug in server configuration parser caused server to get stuck on
+  startup for certain bad pool declarations. Thanks to Guillaume 
+  Knispel for the bug report and fix.
+
+- Code cleaned to remove warnings reported by "gcc -Wall".
+
+- DHCPv6 is now the default. You can disable DHCPv6 support using the
+  "--disable-dhcpv6" flag when you run the configure script.
+
+- An internal database inconsistency bug was repaired where the server
+  would segfault if a client attempted to renew a lease that had been
+  loaded from persistent storage.
+
+- 'request' and 'also request' syntaxes have been added to accommodate
+  the DHCPv6 client configuration.  'send dhcp6.oro' is no longer
+  necessary.
+
+- Bug fixed where configuration file parsing did not work with 
+  zero-length options; this made it impossible to set the 
+  rapid-commit option.
+
+- Bogus messages about host records with IPv4 fixed-addresses being of
+  non-128-bits in length were removed.
+
+			Changes since 4.0.0a1
+
+- Bug in octal parsing fixed. Thanks to Bernd Fuhrmann for the report
+  and fix.
+
+- Autoconf now supplies proper flags for Solaris DHCPv6 builds.
+
+- Fix for parsing error on some IPv6 addresses.
+
+- Invalid CIDR representation for IPv6 subnets or ranges now checked
+  for when loading configuration.
+
+- Compilation on HP/UX has been repaired.  The changes should generally
+  apply to any architecture that supplies SIOCGLIFCONF but does not
+  use 'struct lifconf' structures to pass values.
+
+- Two new operators, ~= and ~~, have been integrated to implement
+  boolean matches by regular expression (such as may be used in
+  class matching statements).  Thanks to a patch by Alexandr S.
+  Agranovsky, which underwent slight modification.
+
+- Fix for icmp packets on 64-bit systems (bug introduced in 4.0).
+
+- A bug was fixed in interface discovery wherein an error identifying
+  a server-configured interface with no IPv4 addresses would SEGV.
+
+- Fixed a bug in which write_lease() might report a failure incorrectly
+
+- Added support for DHCPv6 Release messages
+
+- Added -x option to dhclient, which triggers dhclient processes
+  to exit gracefully without releasing leases first
+
+- All binaries (client, server, relay) now change directories
+  to / before going into daemon mode, so as not to hold $CWD open
+
+- Fixed a bug parsing DHCPv6 client-id's in host-identifier statements
+
+- Fixed a bug with the 'ddns-updates' boolean server configuration
+  parameter, which caused the server to fail.
+
+			Changes since 4.0.0-20070413
+
+- Old (expired) leases are now cleaned.
+
+- IPv6 subnets now have support for arbitrary allocation ranges via
+  a new 'range6' configuration directive.
+
+- An obviated option code hash lookup to find D6O_CLIENTID was removed.
+
+- Corrected some situations where variables might be used without being
+  initialized.
+
+- Silenced several other compiler warnings.
+
+- Include the more standard sys/uio.h rather than rely upon other
+  header files to include it (fixes a BSD 4.2 compile failure).
+
+- Duplicate dhclient-script updates for DHCPv6 to all provided scripts.
+
+- DHCPv4 I/O methods that failed to sense hardware address were corrected.
+
+- DHCPv4 is now the default (as documented) rather than DHCPv6.  The default
+  was set to DHCPv6 to facilitate ease early development, and forgotten.
+
+- Corrected a segmentation violation in DHCPv4 socket processing.
+
+- dhclient will now fork() into the background once it binds to an
+  IPv6 address, or immediately if the -n flag is supplied.
+
+- -q is now the default behaviour on dhclient, with -d or -v enabling
+  non-quiet (stderr logging) mode.
+
+- Fix documentation of the domain-search atom (quoted, with commas).
+
+- Document DHCPv6 options presently in the default table.
+
+- Replaced ./configure shellscripting with GNU Autoconf.
+
+		     Changes since 3.1.0 (NEW FEATURES)
+
+- DHCPv6 Client and Server protocol support.  Use '-6' to run the daemons
+  as v6-only.  Use '-4' to run the daemons as v4-only (default.  There is
+  no support currently for both.
+
+- Server support for multiple IA_NA options, containing at most one
+  IAADDR option.
+
+- Client support for one IA_NA option, containing any number of IAADDR
+  options.
+
+- Server support for the DHCPv6 Information-request message.
+
+- Inappropriate unicast DHCPv6 messages sent to the server are now
+  discarded, and this has rearchitected the IO system slightly.
+
+- The DHCPv6 server DUID defaults to type 1, is persistently stored in
+  the leases database, and can be over-ridden (either completely, or by
+  specifying type 1 or type 2).
+
+- The server only uses Rapid-Commit if it has been configured with the
+  Rapid-Commit option and the client requests it.
+
+- DDNS support. We now update AAAA records in the same place we would
+  update A records, if we have an IPv6 address. We also generate IP6.ARPA
+  style names for PTR records if we're dealing with an IPv6 address.  Both
+  A and AAAA updates are done using the same 'fqdn.' virtual option space
+  (although the DHCPv4 FQDN and DHCPv6 FQDN options are formatted
+  differently, they both use the same code here).
+
+- The Linux dhclient-script attempts to set and remove assigned addresses,
+  and to configure /etc/resolv.conf from nameserver and domain name
+  configurations.  It can be extended to configure other parameters.
+
+- Initial DHCPv6 lease support.
+
+- The IO system now tracks all local IP addresses, so that the DHCP
+  applications (particularly the dhcrelay) can discern between what frames
+  were transmitted to it, and what frames are being carried through it which
+  it should not intercept.
+
+			Changes since 3.1.0 (Maintenance)
+
+- A bug was repaired where MAC Address Affinity for virgin leases always
+  mapped to the primary.  Virgin leases now have an interleaved preference
+  between primary and secondary.
+
+- A bug was repaired where MAC Address Affinity for clients with no client
+  identifier was sometimes mishashed to the peer.  Load balancing during
+  runtime and pool rebalancing were opposing.
+
+- An assertion in lease counting relating to reserved leases was repaired.
+
+- The subnet-mask option inclusion now conforms with RFC2132 section 3.3;
+  it will only appear prior to the routers option if it is present on the
+  Parameter-Request-List.  The subnet-mask option will also only be
+  included by default (if it is not on the PRL) in response to DISCOVER
+  or REQUEST messages.
+
+- The FQDN option is only supplied if the client supplied an FQDN option or
+  if the FQDN option was explicitly requested on the PRL.
+
+- Dynamic BOOTP leases are now load balanced in failover.
+
+			Changes since 3.1.0rc1
+
+- The parse warning that 'deny dyanmic bootp;' must be configured for
+  failover protected subnets was removed.
+
+			Changes since 3.1.0b2
+
+- Failover rebalance events no longer play ping pong with round errors
+  (moving leases between free and back to backup where there are an
+  odd number of leases).
+
+- The 'pool' log line has been split into two messages, one before the
+  rebalance run, and one after.
+
+- Any queued BNDACKs are transmitted before transmitting new BNDUPDs.
+  This enforces the correct sequence of events for the remote server
+  processing these messages.
+
+			Changes since 3.1.0b1
+
+- Fixed a bug that caused OMAPI clients to freeze when opening lease
+  objects.
+
+- A new server config option "fqdn-reply" specifies whether the server
+  should send out option 81 (FQDN).  Defaults to "on".  If set to "off",
+  the FQDN option is not sent, even if the client requested it.  This is
+  needed because some clients misbehave otherwise.  Thanks to Christof Chen
+  at Allianz.
 
 - Allow trace output files (-tf option) to be overwritten, rather than
   crashing dhcpd if the file already exists
@@ -103,12 +654,208 @@ and for prodding me into improving it.
 - A bug was fixed that caused dhcpd to segfault if a pool was declared
   outside the scope of a subnet in dhcpd.conf.
 
+- Some uninitialized values were repaired in dhcpleasequery.c that
+  caused the server to abort.
+
+- A new server config option, 'do-reverse-updates', has been added
+  which causes the server to abstain from performing updates on PTR
+  records.  Thanks to a patch from Christof Chen at Allianz.
+
+- A bug was repaired in subencapsulation support, where spaces separated
+  by empty spaces would not get included.
+
+- A bug in dhclient was repaired which caused it to send parameter request
+  lists of 55 bytes in length no matter how long the declared PRL was.
+
+- 'dhcp.c(3953): non-null pointer' has been repaired.  This fixes a flaw
+  wherein the DHCPv4 server may ignore a configured server-identifier.
+
+- A flaw in failover startup sequences was repaired that sometimes left
+  the primary DHCP server's pool rebalance schedules unscheduled.
+
+- Corrected a flaw that broke encapsulated spaces included due to presence
+  on the parameter request list.
+
+			Changes since 3.1.0a3
+
+- Some spelling fixes.
+
+			Changes since 3.1.0a2
+
+- A bug was fixed where attempting to permit leasequeries results in a
+  fatal internal error, "Unable to find server option 49".
+
+- A bug was fixed in dhclient rendering the textual output form of the
+  domain-search option syntax.
+
+			Changes since 3.1.0a1
+
+- A bug in the FQDN universe that added FQDN codes to the NWIP universe's
+  hash table was repaired.
+
+- The servers now try harder to transmit pending binding updates when
+  entering normal state.
+
+- UPDREQ/UPDREQALL handling was optimized - it no longer dequeues and
+  requeues all pending updates.  This should reduce the number of spurious
+  'xid mismatch' log messages.
+
+- An option definition referencing leak was fixed, which resulted in early
+  termination of dhclient upon the renewal event.
+
+- Some default hash table sizes were tweaked, some upwards, some downwards.
+  3.1.0a1's tables resulted in a reduction in default server memory use.
+  The new selected values provide more of a zero sum (increasing the size
+  of tables likely to be populated, decreasing the size of tables unlikely).
+
+- Lease structures appear in three separate hashes: by IP address, by UID,
+  and by hardware address.  One type of table was used for all three, and
+  improvements to IP address hashing were applied to all three (so UID and
+  hardware addresses were treated like 4-byte integers).  There are now two
+  types of tables, and the uid/hw hashes use functions more appropriate
+  to their needs.
+
+- The max-lease-misbalance percentage no longer causes scheduled rebalance
+  runs to be skipped: it still governs the schedule, but every scheduled
+  run will attempt balance.
+
+- A segfault bug in recursive encapsulation support has been corrected.
+
+			Changes since 3.0 (New Features)
+
+- A workaround for certain STSN servers that send a mangled domain-name
+  option was introduced for dhclient.  The client will now accept corrupted
+  server responses, if they contain a valid DHCP_MESSAGE_TYPE (OFFER, ACK,
+  or NAK).  The server will continue to not accept corrupt client packets.
+
+- Support for 'reserved' (pseudo-static) and BOOTP leases via failover
+  was introduced.
+
+- Support for adding, removing, and managing class and subclass statements
+  via OMAPI.
+
+- The failover implementation was updated to comply with revision 12 of
+  the protocol draft.
+
+- 'make install' now creates the initial zero-length dhcpd.leases file if
+  one does not already exist on the system.
+
+- RFC3942 compliance, site-local option spaces start at 224 now, not 128.
+
+- The Load Balance Algorithm was misimplemented.  The current implementation
+  matches RFC 3074.
+
+- lcase() and ucase() configuration expressions have been added which adjust
+  their arguments from upper to lower and lower to upper cases respectively.
+  Thanks to a patch from Albert Herranz.
+
+- The dhclient 'reject ...;' statement, which rejects leases given by named
+  server-identifiers, now permits address ranges to be specified in CIDR
+  notation.  Thanks to a patch from David Boyce.
+
+- The subnet-mask option is now supplied by default, but at lowest
+  priority.  This helps a small minority of clients that provide parameter
+  request lists, but do not list the subnet-mask option because they were
+  designed to interoperate with a server that behaves in this manner.
+
+- The FQDN option is similarly supplied even if it does not appear on the
+  parameter request list, but not to the exclusion of options that do
+  appear at the parameter request list.  Up until now it had ultimate
+  priority over the client's parameter request list.
+
+- Varying option space code and length bit widths (8/16/32) are now
+  supported.  This is a milestone in achieving RFC 3925 "VIVSO" and
+  DHCPv6 support.
+
+- A new common (server or client) option, 'db-time-format local;', has
+  been added which prints the local time in /var/db/dhcpd.leases rather
+  than UTC.  Thanks to a patch from Ken Lalonde.
+
+- Some patches to improve DHCP Server startup speed from Andrew Matheson
+  have been incorporated.
+
+- Failover pairs now implement 'MAC Affinity' on leases moving from the
+  active to free states.  Leases that belonged to the failover secondary
+  are moved to BACKUP state rather than FREE upon exiting EXPIRED state.
+  If lease rebalancing must move leases, it tries first to move leases
+  that belong to the peer in need.
+
+- The server no longer sends POOLREQ messages unless the pool is severely
+  misbalanced in the peer's favor (see 'man dhcpd.conf' for more details).
+
+- Pool rebalance events no longer happen upon successfully allocating a
+  lease.  Instead, they happen on a schedule.  See 'man dhcpd.conf' for the
+  min-balance and max-balance statements for more information.
+
+- The DHCP Relay Agent Information Option / Link Selection Sub-Option
+  is now supported.  (See RFC3527 for details).
+
+- A new DDNS related server option, update-conflict-detection, has been
+  added.  If this option is enabled, dhcpd will perform normal DHCID
+  conflict resolution (the default).  If this option is disabled, it will
+  instead trust the assigned name implicitly (removing any other bindings
+  on that name).  This option has not been made available in dhclient.
+
+- In those cases where the DHCP software manufactures an IP header (to
+  transmit via bpf, lpf, etc), the IP TTL the software selects has been
+  increased from 16 to 128.  This is intended to match Microsoft Windows
+  DHCP Client behaviour, to increase compatibility.
+
+- 'ignore client-updates;' now has behaviour that is different from
+  'deny client-updates;'.  The client's request is not truly ignored,
+  rather it is encouraged.  Should this value be configured, the server
+  updates DNS as though client-updates were set to 'deny'.  That is, it
+  enters into DNS whatever it is configured to do already, provided it is
+  configured to.  Then it sends a response to the client that lets the
+  client believe it is performing client updates (which it will), probably
+  for a different name.  In essence, this lets the client do as it will,
+  ignoring this aspect of their request.
+
+- Support for compressed 'domain name list' style DHCP option contents, and
+  in particular the domain search option (#119) was added.
+
+- The DHCP LEASEQUERY protocol as defined in RFC4388 is now implemented.
+  LEASEQUERY lets you query the DHCP server for information about a lease,
+  using either an IP address, MAC address, or client identifier.  Thanks
+  to a patch from Justin Haddad.
+
+- DHCPD is now RFC2131 section 4.1 compliant (broadcast to all-ones ip and
+  ethernet mac address) on the SCO platform specifically without any strange
+  ifconfig hacks.  Many thanks go to the Kroger Co. for donating the
+  hardware and funding the development.
+
+- A new common configuration executable statement, execute(), has been
+  added.  This permits dhcpd or dhclient to execute a named external
+  program with command line arguments specified from other configuration
+  language.  Thanks to a patch written by Mattias Ronnblom, gotten to us
+  via Robin Breathe.
+
+- A new dhcp server option 'adaptive-lease-time-threshold' has been added
+  which causes the server to substantially reduce lease-times if there are
+  few (configured percentage) remaining leases.  Thanks to a patch submitted
+  from Christof Chen.
+
+- Encapsulated option spaces within encapsulated option spaces is now
+  formally supported.
+
+			Changes since 3.0.6rc1
+
+- supersede_lease() now requeues leases in their respective hardware
+  address hash bucket.  This mirrors client identifier behaviour.
+
+			Changes since 3.0.5
+
+- Assorted fixes for broken network devices:  Packet length is now
+  determined from the IP header length field to finally calculate the
+  UDP payload length, because some NIC drivers return more data than
+  they actually received.
+
+- UDP packets are now stored in aligned data structures.
+
 - A logic error in omapi interface code was repaired that might result in
   incorrectly indicating 'up' state when any flags were set, rather than
-  specifically the INTERFACE_REQUESTED flag.Thanks to a patch from
+  specifically the INTERFACE_REQUESTED flag.  Thanks to a patch from
   Jochen Voss which got to us via Andrew Pollock at Debian.
-
-- Spelling fixes.
 
 - A reference leak on binding scopes set by ddns updates was repaired.
 
@@ -157,24 +904,16 @@ and for prodding me into improving it.
   arising when "INIT" clients were given new leases rather than presently
   active ones.
 
-- A bug that kept option overloading from working (on reception) has
-  been repaired.
-
-			Changes since 3.0.5rc2
-
-- Failover servers try harder to retransmit binding updates upon entering
-  NORMAL state.
-
 			Changes since 3.0.5rc1
 
-- A bug was repaired in fixes to the dhclient which sought to run the
+- A bug was repaired in fixes to the dhclient, which sought to run the
   dhclient-script with the 'EXPIRE' state should it receive a NAK in
   response to a REQUEST.  The client now iterates the PREINIT state
   after the EXPIRE state, so that interfaces that might be configured
   'down' can be brought back 'up' and initialized.
 
 - DHCPINFORM handling for clients that properly set ciaddr and come to the
-  server via a relay agent has been repaired.
+  server via a relay aget has been repaired.
 
 			Changes since 3.0.4
 
@@ -231,6 +970,17 @@ and for prodding me into improving it.
   multiple identifiers (previous versions would silently over-ride the
   value with the later configured value).
 
+- Several option codes that have been allocated since our last release
+  have been named and documented.
+
+- Option names of the form "unknown-123" have been removed from the in-
+  memory hash tables.  In order to support options of these names that
+  may appear in dhclient.leases or similar in previous versions, the
+  parser will now find the new option code definition, or mock up a
+  generic option code definition.  This should result in a smooth
+  transition from one name to the other, as the new name is used to
+  write new output.
+
 			Changes since 3.0.4rc1
 
 - The dhcp-options.5 manpage was updated to correct indentation errors
@@ -243,7 +993,7 @@ and for prodding me into improving it.
 
 			Changes since 3.0.4b2
 
-- Null-termination sensing for certain clients that unfortunatley require
+- Null-termination sensing for certain clients that unfortunately require
   it in DHCPINFORM processing was repaired.
 
 - The host-name option and a few others were moved from "X" format to "t"
@@ -288,11 +1038,11 @@ and for prodding me into improving it.
 
 - Failover peers no longer bother to look for free leases to allocate when
   they already found the client's ACTIVE lease.  DISCOVERs are load balanced
-  wether freely-allocated or not, unless the server doubts the peer has
+  whether freely-allocated or not, unless the server doubts the peer has
   leases to allocate.
 
 - Fixed a bug in dhcrelay agent addition code that suppressed trailing
-  PAD options - it was suppressing only one trailng PAD option, rather
+  PAD options - it was suppressing only one trailing PAD option, rather
   than the entire block of them.
 
 ! Fixed some unlikely overlapping-region memcpy() bugs in dhcrelay agent
@@ -331,7 +1081,7 @@ and for prodding me into improving it.
   these interfaces.  Thanks to Marius Gedminas and Andrew Pollock of Debian.
 
 - Some previously undocumented reasons for dhclient-script invoking has
-  been doucmented in the dhclient-script.8 manpage.
+  been documented in the dhclient-script.8 manpage.
 
 - Failover potential expiry calculations (TSTP) have been corrected.  Results
   should be substantially more consistent, and proper given the constraints.
@@ -377,9 +1127,9 @@ and for prodding me into improving it.
   Thanks to a patch from Jason Vas Dias at RedHat.
 
 - File handlers on configuration state (config files and lease dbs) should
-  be treated consistently, regardless of wether TRACING is defined or not.
+  be treated consistently, regardless of whether TRACING is defined or not.
 
-- The linux build environment has had some minor improvements - better
+- The Linux build environment has had some minor improvements - better
   sensing of 64-bit pointer sizes (only used for establishing an icmp_id),
   and corrections to #if operators regarding LINUX_MAJOR should it ever
   move to 3.[01].x.
@@ -415,7 +1165,7 @@ and for prodding me into improving it.
 			Changes since 3.0.2
 
 - A bug was fixed where a server might load balance a DHCP REQUEST to its
-  peer after already choosing not to load balance the preceeding DISCOVER.
+  peer after already choosing not to load balance the preceding DISCOVER.
   The peer cannot allocate the originating server's lease.
 
 - In the case where a secondary server lost its stable storage while the
@@ -490,7 +1240,7 @@ and for prodding me into improving it.
 
 			Changes since 3.0.2rc2
 
-- Two varaibles introduced in 3.0.2b1 were used without being initialized
+- Two variables introduced in 3.0.2b1 were used without being initialized
   in the case where neither the FILE nor SNAME fields were available for
   overloading.  This was repaired.
 
@@ -663,7 +1413,7 @@ and for prodding me into improving it.
   both finding and solving the problem.
 
 ! CAN-2004-0461 - CERT VU#654390: Once the above was closed, an opening
-  in log_*() functions was evidented, on some specific platforms where
+  in log_*() functions was evidenced, on some specific platforms where
   vsnprintf() was not believed to be available and calls were wrapped to
   sprintf() instead.  Again, credit goes to Gregory Duchemin for finding
   the problem.  Calls to snprintf() are now linked to a distribution-local
@@ -695,7 +1445,7 @@ and for prodding me into improving it.
   to a patch from Burt Silverman.
 
 - The 'ping timeout' debugs from rc12 were removed to -DDEBUG only,
-  and reformatted to correct a compilation error on solaris platforms.
+  and reformatted to correct a compilation error on Solaris platforms.
 
 - A patch was applied which fixes a case where leases read from the
   leases database do not properly over-ride previously read leases.
@@ -714,7 +1464,7 @@ and for prodding me into improving it.
 - A failover bug relating to identifying peers by name length instead of
   by name was fixed.
 
-- Delcaring failover configs within shared-network statements should no
+- Declaring failover configs within shared-network statements should no
   longer result in error.
 
 - The -nw command line option to dhclient now works.
@@ -1842,7 +2592,7 @@ and for prodding me into improving it.
 		Changes since 3.0 Beta 2 Patchlevel 3
 
 - In the DHCP client, execute client statements prior to using the values
-  of options, so that the client configuration can overried, e.g., the
+  of options, so that the client configuration can overridden, e.g., the
   lease renewal time.
 
 - Fix a reference counting error that would result in very reproducible
