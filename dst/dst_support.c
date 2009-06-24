@@ -1,9 +1,8 @@
-static const char rcsid[] = "$Header: /proj/cvs/prod/DHCP/dst/dst_support.c,v 1.4 2007/12/06 00:50:22 dhankins Exp $";
+static const char rcsid[] = "$Header: /proj/cvs/prod/DHCP/dst/dst_support.c,v 1.1 2001/02/22 07:22:08 mellon Exp $";
 
 
 /*
  * Portions Copyright (c) 1995-1998 by Trusted Information Systems, Inc.
- * Portions Copyright (c) 2007 by Internet Systems Consortium, Inc. ("ISC")
  *
  * Permission to use, copy modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -134,7 +133,7 @@ dst_s_verify_str(const char **buf, const char *str)
  *     byte order conversion.
  * Parameters
  *     buf     Pointer to encoded input string. Pointer is updated if
- *	   function is successful.
+ *	   function is successfull.
  *     loc     Output area.
  *     loclen  Size in bytes of output area.
  * Return
@@ -156,7 +155,7 @@ dst_s_conv_bignum_b64_to_u8(const char **buf,
 	}
 	bp = strchr(*buf, '\n');	/* find length of input line */
 	if (bp != NULL)
-		*bp = '\0';
+		*bp = (u_char) NULL;
 
 	blen = b64_pton(*buf, bstr, sizeof(bstr));
 	if (blen <= 0) {
@@ -226,13 +225,13 @@ dst_s_id_calc(const u_char *key, const unsigned keysize)
 }
 
 /* 
- * dst_s_dns_key_id() Function to calculated DNSSEC footprint from KEY record
+ * dst_s_dns_key_id() Function to calculated DNSSEC footprint from KEY reocrd
  *   rdata (all of  record)
  * Input:
  *	dns_key_rdata: the raw data in wire format 
  *      rdata_len: the size of the input data 
  * Output:
- *      the key footprint/id calculated from the key data 
+ *      the key footprint/id calcuated from the key data 
  */ 
 u_int16_t
 dst_s_dns_key_id(const u_char *dns_key_rdata, const unsigned rdata_len)

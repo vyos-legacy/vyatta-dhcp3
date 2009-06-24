@@ -4,7 +4,7 @@
    protocol... */
 
 /*
- * Copyright (c) 2004-2007 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2006 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1999-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -33,7 +33,10 @@
  * ``http://www.nominum.com''.
  */
 
-#include "dhcpd.h"
+#ifndef lint
+static char copyright[] =
+"$Id: alloc.c,v 1.22.2.13 2006/02/22 22:43:27 dhankins Exp $ Copyright (c) 2004-2006 Internet Systems Consortium, Inc.  All rights reserved.\n";
+#endif /* not lint */
 
 #include <omapip/omapip_p.h>
 
@@ -56,26 +59,29 @@ int rc_history_count;
 static void print_rc_hist_entry (int);
 #endif
 
-void *
-dmalloc(unsigned size, const char *file, int line) {
+VOIDPTR dmalloc (size, file, line)
+	unsigned size;
+	const char *file;
+	int line;
+{
 	unsigned char *foo;
 	unsigned len;
-	void **bar;
+	int i;
+	VOIDPTR *bar;
 #if defined (DEBUG_MEMORY_LEAKAGE) || defined (DEBUG_MALLOC_POOL) || \
 		defined (DEBUG_MEMORY_LEAKAGE_ON_EXIT)
-	int i;
 	struct dmalloc_preamble *dp;
 #endif
 
 	len = size + DMDSIZE;
 	if (len < size)
-		return NULL;
+		return (VOIDPTR)0;
 
 	foo = malloc(len);
 
 	if (!foo)
-		return NULL;
-	bar = (void *)(foo + DMDOFFSET);
+		return (VOIDPTR)0;
+	bar = (VOIDPTR)(foo + DMDOFFSET);
 	memset (bar, 0, size);
 
 #if defined (DEBUG_MEMORY_LEAKAGE) || defined (DEBUG_MALLOC_POOL) || \
@@ -131,8 +137,11 @@ dmalloc(unsigned size, const char *file, int line) {
 	return bar;
 }
 
-void 
-dfree(void *ptr, const char *file, int line) {
+void dfree (ptr, file, line)
+	VOIDPTR ptr;
+	const char *file;
+	int line;
+{
 	if (!ptr) {
 		log_error ("dfree %s(%d): free on null pointer.", file, line);
 		return;
@@ -198,8 +207,12 @@ dfree(void *ptr, const char *file, int line) {
 /* For allocation functions that keep their own free lists, we want to
    account for the reuse of the memory. */
 
-void 
-dmalloc_reuse(void *foo, const char *file, int line, int justref) {
+void dmalloc_reuse (foo, file, line, justref)
+	VOIDPTR foo;
+	const char *file;
+	int line;
+	int justref;
+{
 	struct dmalloc_preamble *dp;
 
 	/* Get the pointer to the dmalloc header. */
@@ -413,7 +426,7 @@ void rc_history_next (int d)
 		rc_history_index = 0;
 	++rc_history_count;
 }
-#endif /* DEBUG_RC_HISTORY */
+#endif
 
 #if defined (DEBUG_MEMORY_LEAKAGE) || defined (DEBUG_MALLOC_POOL) || \
 		defined (DEBUG_MEMORY_LEAKAGE_ON_EXIT)

@@ -32,14 +32,13 @@
  * ``http://www.nominum.com''.
  */
 
+#ifndef lint
+static char copyright[] =
+"$Id: tree.c,v 1.101.2.18 2007/05/01 20:42:56 each Exp $ Copyright (c) 2004-2006 Internet Systems Consortium.  All rights reserved.\n";
+#endif /* not lint */
+
 #include "dhcpd.h"
 #include <omapip/omapip_p.h>
-#include <ctype.h>
-#include <sys/wait.h>
-
-#ifdef HAVE_REGEX_H
-# include <regex.h>
-#endif
 
 struct binding_scope *global_scope;
 
@@ -50,101 +49,6 @@ static int do_host_lookup PROTO ((struct data_string *,
 struct __res_state resolver_state;
 int resolver_inited = 0;
 #endif
-
-#define DS_SPRINTF_SIZE 128
-
-/* 
- * If we are using a data_string structure to hold a NUL-terminated 
- * ASCII string, this function can be used to append a printf-formatted 
- * string to the end of it. The data_string structure will be resized to
- * be big enough to hold the new string.
- *
- * If the append works, then 1 is returned.
- *
- * If it is not possible to allocate a buffer big enough to hold the 
- * new value, then the old data_string is unchanged, and 0 is returned.
- */
-int
-data_string_sprintfa(struct data_string *ds, const char *fmt, ...) {
-	va_list args;
-	int cur_strlen;
-	int max;
-	int vsnprintf_ret;
-	int new_len;
-	struct buffer *tmp_buffer;
-
-	/*
-	 * If the data_string is empty, then initialize it.
-	 */
-	if (ds->data == NULL) {
-		/* INSIST(ds.buffer == NULL); */
-		if (!buffer_allocate(&ds->buffer, DS_SPRINTF_SIZE, MDL)) {
-			return 0;
-		}
-		ds->data = ds->buffer->data;
-		ds->len = DS_SPRINTF_SIZE;
-		*((char *)ds->data) = '\0';
-	}
-
-	/*
-	 * Get the length of the string, and figure out how much space
-	 * is left.
-	 */
-	cur_strlen = strlen((char *)ds->data);
-	max = ds->len - cur_strlen;
-
-	/* 
-	 * Use vsnprintf(), which won't write past our space, but will
-	 * tell us how much space it wants.
-	 */
-	va_start(args, fmt);
-	vsnprintf_ret = vsnprintf((char *)ds->data+cur_strlen, max, fmt, args);
-	va_end(args);
-	/* INSIST(vsnprintf_ret >= 0); */
-
-	/*
-	 * If our buffer is not big enough, we need a new buffer.
-	 */
-	if (vsnprintf_ret >= max) {
-		/* 
-		 * Figure out a size big enough.
-		 */
-		new_len = ds->len * 2;
-		while (new_len <= cur_strlen + vsnprintf_ret) {
-			new_len *= 2;
-		}
-
-		/* 
-		 * Create a new buffer and fill it.
-		 */
-		tmp_buffer = NULL;
-		if (!buffer_allocate(&tmp_buffer, new_len, MDL)) {
-			/* 
-			 * If we can't create a big enough buffer, 
-			 * we should remove any truncated output that we had.
-			 */
-			*((char *)ds->data+cur_strlen) = '\0';
-			va_end(args);
-			return 0;
-		}
-		memcpy(tmp_buffer->data, ds->data, cur_strlen);
-
-		/* Rerun the vsprintf. */
-		va_start(args, fmt);
-		vsprintf((char *)tmp_buffer->data + cur_strlen, fmt, args);
-		va_end(args);
-
-		/*
-		 * Replace our old buffer with the new buffer.
-		 */
-		buffer_dereference(&ds->buffer, MDL);
-		buffer_reference(&ds->buffer, tmp_buffer, MDL);
-		buffer_dereference(&tmp_buffer, MDL);
-		ds->data = ds->buffer->data;
-		ds->len = new_len;
-	}
-	return 1;
-}
 
 pair cons (car, cdr)
 	caddr_t car;
@@ -193,7 +97,7 @@ int make_const_option_cache (oc, buffer, data, len, option, file, line)
 	(*oc) -> data.terminated = 0;
 	if (data)
 		memcpy (&bp -> data [0], data, len);
-	option_reference(&((*oc)->option), option, MDL);
+	(*oc) -> option = option;
 	return 1;
 }
 
@@ -345,6 +249,8 @@ int make_limit (new, expr, limit)
 	struct expression *expr;
 	int limit;
 {
+	struct expression *rv;
+
 	/* Allocate a node to enforce a limit on evaluation. */
 	if (!expression_allocate (new, MDL))
 		log_error ("no memory for limit expression");
@@ -382,7 +288,7 @@ int option_cache (struct option_cache **oc, struct data_string *dp,
 		data_string_copy (&(*oc) -> data, dp, file, line);
 	if (expr)
 		expression_reference (&(*oc) -> expression, expr, file, line);
-	option_reference(&(*oc)->option, option, MDL);
+	(*oc) -> option = option;
 	return 1;
 }
 
@@ -738,10 +644,11 @@ int evaluate_dns_expression (result, packet, lease, client_state, in_options,
 	struct binding_scope **scope;
 	struct expression *expr;
 {
+	ns_updrec *foo;
 	unsigned long ttl = 0;
 	char *tname;
 	struct data_string name, data;
-	int r0, r1, r2;
+	int r0, r1, r2, r3;
 
 	if (!result || *result) {
 		log_error ("evaluate_dns_expression called with non-null %s",
@@ -913,8 +820,6 @@ int evaluate_dns_expression (result, packet, lease, client_state, in_options,
 	      case expr_check:
 	      case expr_equal:
 	      case expr_not_equal:
-	      case expr_regex_match:
-	      case expr_iregex_match:
 	      case expr_and:
 	      case expr_or:
 	      case expr_not:
@@ -930,8 +835,6 @@ int evaluate_dns_expression (result, packet, lease, client_state, in_options,
 	      case expr_none:
 	      case expr_substring:
 	      case expr_suffix:
-	      case expr_lcase:
-	      case expr_ucase:
 	      case expr_option:
 	      case expr_hardware:
 	      case expr_const_data:
@@ -1001,14 +904,13 @@ int evaluate_boolean_expression (result, packet, lease, client_state,
 	struct expression *expr;
 {
 	struct data_string left, right;
+	struct data_string rrtype, rrname, rrdata;
+	unsigned long ttl;
+	int srrtype, srrname, srrdata, sttl;
 	int bleft, bright;
 	int sleft, sright;
 	struct binding *binding;
 	struct binding_value *bv, *obv;
-#ifdef HAVE_REGEX_H
-	int regflags = REG_EXTENDED | REG_NOSUB;
-	regex_t re;
-#endif
 
 	switch (expr -> op) {
 	      case expr_check:
@@ -1100,65 +1002,6 @@ int evaluate_boolean_expression (result, packet, lease, client_state,
 		if (sright)
 			binding_value_dereference (&obv, MDL);
 		return 1;
-
-	      case expr_iregex_match:
-#ifdef HAVE_REGEX_H
-		regflags |= REG_ICASE;
-#endif
-		/* FALL THROUGH */
-	      case expr_regex_match:
-#ifdef HAVE_REGEX_H
-		memset(&left, 0, sizeof left);
-		bleft = evaluate_data_expression(&left, packet, lease,
-						 client_state,
-						 in_options, cfg_options,
-						 scope,
-						 expr->data.equal[0], MDL);
-		memset(&right, 0, sizeof right);
-		bright = evaluate_data_expression(&right, packet, lease,
-						  client_state,
-						  in_options, cfg_options,
-						  scope,
-						  expr->data.equal[1], MDL);
-
-		*result = 0;
-		memset(&re, 0, sizeof(re));
-		if (bleft && bright &&
-        	    (regcomp(&re, (char *)right.data, regflags) == 0) &&
-		    (regexec(&re, (char *)left.data, (size_t)0, NULL, 0) == 0))
-				*result = 1;
-
-#if defined (DEBUG_EXPRESSIONS)
-		log_debug("bool: %s ~= %s yields %s",
-			  bleft ? print_hex_1(left.len, left.data, 20)
-				: "NULL",
-			  bright ? print_hex_2 (right.len, right.data, 20)
-				 : "NULL",
-			  *result ? "true" : "false");
-#endif
-
-		if (bleft)
-			data_string_forget(&left, MDL);
-		if (bright)
-			data_string_forget(&right, MDL);
-
-		regfree(&re);
-
-		/*
-		 * If we have bleft and bright then we have a good
-		 * syntax, otherwise not.
-		 *
-		 * XXX: we don't warn on invalid regular expression 
-		 *      syntax, should we?
-		 */
-		return bleft && bright;
-#else
-		/* It shouldn't be possible to configure a regex operator
-		 * when there's no support.
-		 */
-		log_fatal("Impossible condition at %s:%d.", MDL);
-		break;
-#endif
 
 	      case expr_and:
 		sleft = evaluate_boolean_expression (&bleft, packet, lease,
@@ -1355,8 +1198,6 @@ int evaluate_boolean_expression (result, packet, lease, client_state,
 	      case expr_match:
 	      case expr_substring:
 	      case expr_suffix:
-	      case expr_lcase:
-	      case expr_ucase:
 	      case expr_option:
 	      case expr_hardware:
 	      case expr_const_data:
@@ -1438,7 +1279,7 @@ int evaluate_data_expression (result, packet, lease, client_state,
 	int s0, s1, s2, s3;
 	int status;
 	struct binding *binding;
-	unsigned char *s;
+	char *s;
 	struct binding_value *bv;
 
 	switch (expr -> op) {
@@ -1492,6 +1333,7 @@ int evaluate_data_expression (result, packet, lease, client_state,
 			return 1;
 		return 0;
 
+
 		/* Extract the last N bytes of a data string. */
 	      case expr_suffix:
 		memset (&data, 0, sizeof data);
@@ -1529,78 +1371,6 @@ int evaluate_data_expression (result, packet, lease, client_state,
 		       : "NULL"));
 #endif
 		return s0 && s1;
-
-		/* Convert string to lowercase. */
-	      case expr_lcase:
-		memset(&data, 0, sizeof data);
-		s0 = evaluate_data_expression(&data, packet, lease,
-					      client_state,
-					      in_options, cfg_options, scope,
-					      expr->data.lcase, MDL);
-		s1 = 0;
-		if (s0) {
-			result->len = data.len;
-			if (buffer_allocate(&result->buffer,
-					    result->len + data.terminated,
-					    MDL)) {
-				result->data = &result->buffer->data[0];
-				memcpy(result->buffer->data, data.data,
-				       data.len + data.terminated);
-				result->terminated = data.terminated;
-				s = (unsigned char *)result->data;
-				for (i = 0; i < result->len; i++, s++)
-					*s = tolower(*s);
-				s1 = 1;
-			} else {
-				log_error("data: lcase: no buffer memory.");
-			}
-		}
-
-#if defined (DEBUG_EXPRESSIONS)
-		log_debug("data: lcase (%s) = %s",
-			  s0 ? print_hex_1(data.len, data.data, 30) : "NULL",
-			  s1 ? print_hex_2(result->len, result->data, 30)
-			     : "NULL");
-#endif
-		if (s0)
-			data_string_forget(&data, MDL);
-		return s1;
-
-		/* Convert string to uppercase. */
-	      case expr_ucase:
-		memset(&data, 0, sizeof data);
-		s0 = evaluate_data_expression(&data, packet, lease,
-					      client_state,
-					      in_options, cfg_options, scope,
-					      expr->data.lcase, MDL);
-		s1 = 0;
-		if (s0) {
-			result->len = data.len;
-			if (buffer_allocate(&result->buffer,
-					    result->len + data.terminated,
-					    file, line)) {
-				result->data = &result->buffer->data[0];
-				memcpy(result->buffer->data, data.data,
-				       data.len + data.terminated);
-				result->terminated = data.terminated;
-				s = (unsigned char *)result->data;
-				for (i = 0; i < result->len; i++, s++)
-					*s = toupper(*s);
-				s1 = 1;
-			} else {
-				log_error("data: lcase: no buffer memory.");
-			}
-		}
-
-#if defined (DEBUG_EXPRESSIONS)
-		log_debug("data: ucase (%s) = %s",
-			  s0 ? print_hex_1(data.len, data.data, 30) : "NULL",
-			  s1 ? print_hex_2(result->len, result->data, 30)
-			     : "NULL");
-#endif
-		 if (s0)
-			data_string_forget(&data, MDL);
-		 return s1;
 
 		/* Extract an option. */
 	      case expr_option:
@@ -2056,6 +1826,7 @@ int evaluate_data_expression (result, packet, lease, client_state,
 					       MDL);
 
 		if (s0 && s1) {
+			char *upper;
 			int i;
 
 			/* The buffer must be a multiple of the number's
@@ -2302,8 +2073,6 @@ int evaluate_data_expression (result, packet, lease, client_state,
 	      case expr_check:
 	      case expr_equal:
 	      case expr_not_equal:
-	      case expr_regex_match:
-	      case expr_iregex_match:
 	      case expr_and:
 	      case expr_or:
 	      case expr_not:
@@ -2382,8 +2151,6 @@ int evaluate_numeric_expression (result, packet, lease, client_state,
 	      case expr_check:
 	      case expr_equal:
 	      case expr_not_equal:
-	      case expr_regex_match:
-	      case expr_iregex_match:
 	      case expr_and:
 	      case expr_or:
 	      case expr_not:
@@ -2399,8 +2166,6 @@ int evaluate_numeric_expression (result, packet, lease, client_state,
 
 	      case expr_substring:
 	      case expr_suffix:
-	      case expr_lcase:
-	      case expr_ucase:
 	      case expr_option:
 	      case expr_hardware:
 	      case expr_const_data:
@@ -2847,11 +2612,6 @@ int evaluate_numeric_expression (result, packet, lease, client_state,
 
 	      case expr_arg:
 		break;
-
-	      default:
-		log_fatal("Impossible case at %s:%d.  Undefined operator "
-			  "%d.", MDL, expr->op);
-		break;
 	}
 
 	log_error ("evaluate_numeric_expression: bogus opcode %d", expr -> op);
@@ -2876,7 +2636,7 @@ int evaluate_option_cache (result, packet, lease, client_state,
 	const char *file;
 	int line;
 {
-	if (oc->data.data != NULL) {
+	if (oc -> data.len) {
 		data_string_copy (result, &oc -> data, file, line);
 		return 1;
 	}
@@ -2917,16 +2677,12 @@ int evaluate_boolean_option_cache (ignorep, packet,
 				    cfg_options, scope, oc, file, line))
 		return 0;
 
-	/* The boolean option cache is actually a trinary value.  Zero is
-	 * off, one is on, and 2 is 'ignore'.
-	 */
 	if (ds.len) {
 		result = ds.data [0];
 		if (result == 2) {
 			result = 0;
-			if (ignorep != NULL)
-				*ignorep = 1;
-		} else if (ignorep != NULL)
+			*ignorep = 1;
+		} else
 			*ignorep = 0;
 	} else
 		result = 0;
@@ -3004,8 +2760,6 @@ void expression_dereference (eptr, file, line)
 		/* All the binary operators can be handled the same way. */
 	      case expr_equal:
 	      case expr_not_equal:
-	      case expr_regex_match:
-	      case expr_iregex_match:
 	      case expr_concat:
 	      case expr_and:
 	      case expr_or:
@@ -3045,16 +2799,6 @@ void expression_dereference (eptr, file, line)
 		if (expr -> data.suffix.len)
 			expression_dereference (&expr -> data.suffix.len,
 						file, line);
-		break;
-
-	      case expr_lcase:
-		if (expr->data.lcase)
-			expression_dereference(&expr->data.lcase, MDL);
-		break;
-
-	      case expr_ucase:
-		if (expr->data.ucase)
-			expression_dereference(&expr->data.ucase, MDL);
 		break;
 
 	      case expr_not:
@@ -3227,8 +2971,6 @@ int is_boolean_expression (expr)
 		expr -> op == expr_variable_exists ||
 		expr -> op == expr_equal ||
 		expr -> op == expr_not_equal ||
-		expr->op == expr_regex_match ||
-		expr->op == expr_iregex_match ||
 		expr -> op == expr_and ||
 		expr -> op == expr_or ||
 		expr -> op == expr_not ||
@@ -3239,29 +2981,27 @@ int is_boolean_expression (expr)
 int is_data_expression (expr)
 	struct expression *expr;
 {
-	return (expr->op == expr_substring ||
-		expr->op == expr_suffix ||
-		expr->op == expr_lcase ||
-		expr->op == expr_ucase ||
-		expr->op == expr_option ||
-		expr->op == expr_hardware ||
-		expr->op == expr_const_data ||
-		expr->op == expr_packet ||
-		expr->op == expr_concat ||
-		expr->op == expr_encapsulate ||
-		expr->op == expr_encode_int8 ||
-		expr->op == expr_encode_int16 ||
-		expr->op == expr_encode_int32 ||
-		expr->op == expr_host_lookup ||
-		expr->op == expr_binary_to_ascii ||
-		expr->op == expr_filename ||
-		expr->op == expr_sname ||
-		expr->op == expr_reverse ||
-		expr->op == expr_pick_first_value ||
-		expr->op == expr_host_decl_name ||
-		expr->op == expr_leased_address ||
-		expr->op == expr_config_option ||
-		expr->op == expr_null);
+	return (expr -> op == expr_substring ||
+		expr -> op == expr_suffix ||
+		expr -> op == expr_option ||
+		expr -> op == expr_hardware ||
+		expr -> op == expr_const_data ||
+		expr -> op == expr_packet ||
+		expr -> op == expr_concat ||
+		expr -> op == expr_encapsulate ||
+		expr -> op == expr_encode_int8 ||
+		expr -> op == expr_encode_int16 ||
+		expr -> op == expr_encode_int32 ||
+		expr -> op == expr_host_lookup ||
+		expr -> op == expr_binary_to_ascii ||
+		expr -> op == expr_filename ||
+		expr -> op == expr_sname ||
+		expr -> op == expr_reverse ||
+		expr -> op == expr_pick_first_value ||
+		expr -> op == expr_host_decl_name ||
+		expr -> op == expr_leased_address ||
+		expr -> op == expr_config_option ||
+		expr -> op == expr_null);
 }
 
 int is_numeric_expression (expr)
@@ -3320,8 +3060,6 @@ static int op_val (op)
 	      case expr_check:
 	      case expr_substring:
 	      case expr_suffix:
-	      case expr_lcase:
-	      case expr_ucase:
 	      case expr_concat:
 	      case expr_encapsulate:
 	      case expr_host_lookup:
@@ -3368,8 +3106,6 @@ static int op_val (op)
 
 	      case expr_equal:
 	      case expr_not_equal:
-	      case expr_regex_match:
-	      case expr_iregex_match:
 		return 4;
 
 	      case expr_or:
@@ -3391,6 +3127,8 @@ static int op_val (op)
 int op_precedence (op1, op2)
 	enum expr_op op1, op2;
 {
+	int ov1, ov2;
+
 	return op_val (op1) - op_val (op2);
 }
 
@@ -3418,8 +3156,6 @@ enum expression_context op_context (op)
 	      case expr_check:
 	      case expr_substring:
 	      case expr_suffix:
-	      case expr_lcase:
-	      case expr_ucase:
 	      case expr_concat:
 	      case expr_encapsulate:
 	      case expr_host_lookup:
@@ -3461,8 +3197,6 @@ enum expression_context op_context (op)
 
 	      case expr_equal:
 	      case expr_not_equal:
-	      case expr_regex_match:
-	      case expr_iregex_match:
 		return context_data;
 
 	      case expr_and:
@@ -3517,14 +3251,6 @@ int write_expression (file, expr, col, indent, firstp)
 						 "\"", (char *)0);
 		break;
 
-	      case expr_regex_match:
-		s = "~=";
-		goto binary;
-
-	      case expr_iregex_match:
-		s = "~~";
-		goto binary;
-
 	      case expr_not_equal:
 		s = "!=";
 		goto binary;
@@ -3565,21 +3291,6 @@ int write_expression (file, expr, col, indent, firstp)
 		col = write_expression (file, expr -> data.suffix.len,
 					col, scol, 0);
 		col = token_print_indent (file, col, indent, "", "", ")");
-
-	      case expr_lcase:
-		col = token_print_indent(file, col, indent, "", "", "lcase");
-		col = token_print_indent(file, col, indent, " ", "", "(");
-		scol = col;
-		col = write_expression(file, expr->data.lcase, col, scol, 1);
-		col = token_print_indent(file, col, indent, "", "", ")");
-		break;
-
-	      case expr_ucase:
-		col = token_print_indent(file, col, indent, "", "", "ucase");
-		col = token_print_indent(file, col, indent, " ", "", "(");
-		scol = col;
-		col = write_expression(file, expr->data.ucase, col, scol, 1);
-		col = token_print_indent(file, col, indent, "", "", ")");
 		break;
 
 	      case expr_concat:
@@ -4031,6 +3742,7 @@ int binding_scope_dereference (ptr, file, line)
 	const char *file;
 	int line;
 {
+	int i;
 	struct binding_scope *binding_scope;
 
 	if (!ptr || !*ptr) {
@@ -4147,12 +3859,6 @@ int data_subexpression_length (int *rv,
 		}
 		return 0;
 
-	      case expr_lcase:
-		return data_subexpression_length(rv, expr->data.lcase);
-
-	      case expr_ucase:
-		return data_subexpression_length(rv, expr->data.ucase);
-
 	      case expr_concat:
 		clhs = data_subexpression_length (&llhs,
 						  expr -> data.concat [0]);
@@ -4205,8 +3911,6 @@ int data_subexpression_length (int *rv,
 	      case expr_match:
 	      case expr_check:
 	      case expr_equal:
-	      case expr_regex_match:
-	      case expr_iregex_match:
 	      case expr_and:
 	      case expr_or:
 	      case expr_not:

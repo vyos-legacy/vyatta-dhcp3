@@ -3,7 +3,7 @@
    Parser for dhclient config and lease files... */
 
 /*
- * Copyright (c) 2004-2008 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2007 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1996-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -32,23 +32,27 @@
  * ``http://www.nominum.com''.
  */
 
+#ifndef lint
+static char copyright[] =
+"$Id: clparse.c,v 1.62.2.14 2007/05/01 20:42:55 each Exp $ Copyright (c) 2004-2006 Internet Systems Consortium.  All rights reserved.\n";
+#endif /* not lint */
+
 #include "dhcpd.h"
-#include <errno.h>
+
+static TIME parsed_time;
 
 struct client_config top_level_config;
 
-#define NUM_DEFAULT_REQUESTED_OPTS	9
-struct option *default_requested_options[NUM_DEFAULT_REQUESTED_OPTS + 1];
-
-static void parse_client_default_duid(struct parse *cfile);
-static void parse_client6_lease_statement(struct parse *cfile);
-#ifdef DHCPv6
-static struct dhc6_ia *parse_client6_ia_na_statement(struct parse *cfile);
-static struct dhc6_ia *parse_client6_ia_ta_statement(struct parse *cfile);
-static struct dhc6_ia *parse_client6_ia_pd_statement(struct parse *cfile);
-static struct dhc6_addr *parse_client6_iaaddr_statement(struct parse *cfile);
-static struct dhc6_addr *parse_client6_iaprefix_statement(struct parse *cfile);
-#endif /* DHCPv6 */
+u_int32_t default_requested_options [] = {
+	DHO_SUBNET_MASK,
+	DHO_BROADCAST_ADDRESS,
+	DHO_TIME_OFFSET,
+	DHO_ROUTERS,
+	DHO_DOMAIN_NAME,
+	DHO_DOMAIN_NAME_SERVERS,
+	DHO_HOST_NAME,
+	0
+};
 
 /* client-conf-file :== client-declarations END_OF_FILE
    client-declarations :== <nil>
@@ -58,65 +62,12 @@ static struct dhc6_addr *parse_client6_iaprefix_statement(struct parse *cfile);
 isc_result_t read_client_conf ()
 {
 	struct client_config *config;
+	struct client_state *state;
 	struct interface_info *ip;
-	struct parse *parse;
 	isc_result_t status;
-	unsigned code;
 
-	/* Initialize the default request list. */
-	memset(default_requested_options, 0, sizeof(default_requested_options));
-
-	/* 1 */
-	code = DHO_SUBNET_MASK;
-	option_code_hash_lookup(&default_requested_options[0],
-				dhcp_universe.code_hash, &code, 0, MDL);
-
-	/* 2 */
-	code = DHO_BROADCAST_ADDRESS;
-	option_code_hash_lookup(&default_requested_options[1],
-				dhcp_universe.code_hash, &code, 0, MDL);
-
-	/* 3 */
-	code = DHO_TIME_OFFSET;
-	option_code_hash_lookup(&default_requested_options[2],
-				dhcp_universe.code_hash, &code, 0, MDL);
-
-	/* 4 */
-	code = DHO_ROUTERS;
-	option_code_hash_lookup(&default_requested_options[3],
-				dhcp_universe.code_hash, &code, 0, MDL);
-
-	/* 5 */
-	code = DHO_DOMAIN_NAME;
-	option_code_hash_lookup(&default_requested_options[4],
-				dhcp_universe.code_hash, &code, 0, MDL);
-
-	/* 6 */
-	code = DHO_DOMAIN_NAME_SERVERS;
-	option_code_hash_lookup(&default_requested_options[5],
-				dhcp_universe.code_hash, &code, 0, MDL);
-
-	/* 7 */
-	code = DHO_HOST_NAME;
-	option_code_hash_lookup(&default_requested_options[6],
-				dhcp_universe.code_hash, &code, 0, MDL);
-
-	/* 8 */
-	code = D6O_NAME_SERVERS;
-	option_code_hash_lookup(&default_requested_options[7],
-				dhcpv6_universe.code_hash, &code, 0, MDL);
-
-	/* 9 */
-	code = D6O_DOMAIN_SEARCH;
-	option_code_hash_lookup(&default_requested_options[8],
-				dhcpv6_universe.code_hash, &code, 0, MDL);
-
-	for (code = 0 ; code < NUM_DEFAULT_REQUESTED_OPTS ; code++) {
-		if (default_requested_options[code] == NULL)
-			log_fatal("Unable to find option definition for "
-				  "index %u during default parameter request "
-				  "assembly.", code);
-	}
+	/* Set up the initial dhcp option universe. */
+	initialize_common_option_spaces ();
 
 	/* Initialize the top level client configuration. */
 	memset (&top_level_config, 0, sizeof top_level_config);
@@ -133,9 +84,6 @@ isc_result_t read_client_conf ()
 	top_level_config.requested_options = default_requested_options;
 	top_level_config.omapi_port = -1;
 	top_level_config.do_forward_update = 1;
-	/* Requested lease time, used by DHCPv6 (DHCPv4 uses the option cache)
-	 */
-	top_level_config.requested_lease = 7200;
 
 	group_allocate (&top_level_config.on_receipt, MDL);
 	if (!top_level_config.on_receipt)
@@ -148,27 +96,26 @@ isc_result_t read_client_conf ()
 	status = read_client_conf_file (path_dhclient_conf,
 					(struct interface_info *)0,
 					&top_level_config);
-
-	parse = NULL;
 	if (status != ISC_R_SUCCESS) {
 		;
 #ifdef LATER
 		/* Set up the standard name service updater routine. */
-		status = new_parse(&parse, -1, default_client_config,
-				   sizeof(default_client_config) - 1,
-				   "default client configuration", 0);
+		parse = (struct parse *)0;
+		status = new_parse (&parse, -1, default_client_config,
+				    (sizeof default_client_config) - 1,
+				    "default client configuration", 0);
 		if (status != ISC_R_SUCCESS)
 			log_fatal ("can't begin default client config!");
-	}
 
-	if (parse != NULL) {
 		do {
-			token = peek_token(&val, NULL, cfile);
+			token = peek_token (&val, (unsigned *)0, cfile);
 			if (token == END_OF_FILE)
 				break;
-			parse_client_statement(cfile, NULL, &top_level_config);
+			parse_client_statement (cfile,
+						(struct interface_info *)0,
+						&top_level_config);
 		} while (1);
-		end_parse(&parse);
+		end_parse (&parse);
 #endif
 	}
 
@@ -213,10 +160,8 @@ int read_client_conf_file (const char *name, struct interface_info *ip,
 	if ((file = open (name, O_RDONLY)) < 0)
 		return uerr2isc (errno);
 
-	cfile = NULL;
-	status = new_parse(&cfile, file, NULL, 0, path_dhclient_conf, 0);
-	if (status != ISC_R_SUCCESS || cfile == NULL)
-		return status;
+	cfile = (struct parse *)0;
+	new_parse (&cfile, file, (char *)0, 0, path_dhclient_conf, 0);
 
 	do {
 		token = peek_token (&val, (unsigned *)0, cfile);
@@ -240,7 +185,6 @@ int read_client_conf_file (const char *name, struct interface_info *ip,
 void read_client_leases ()
 {
 	int file;
-	isc_result_t status;
 	struct parse *cfile;
 	const char *val;
 	int token;
@@ -249,35 +193,20 @@ void read_client_leases ()
 	   we can safely trust the server to remember our state. */
 	if ((file = open (path_dhclient_db, O_RDONLY)) < 0)
 		return;
-
-	cfile = NULL;
-	status = new_parse(&cfile, file, NULL, 0, path_dhclient_db, 0);
-	if (status != ISC_R_SUCCESS || cfile == NULL)
-		return;
+	cfile = (struct parse *)0;
+	new_parse (&cfile, file, (char *)0, 0, path_dhclient_db, 0);
 
 	do {
 		token = next_token (&val, (unsigned *)0, cfile);
 		if (token == END_OF_FILE)
 			break;
-
-		switch (token) {
-		      case DEFAULT_DUID:
-			parse_client_default_duid(cfile);
-			break;
-
-		      case LEASE:
-			parse_client_lease_statement(cfile, 0);
-			break;
-
-		      case LEASE6:
-			parse_client6_lease_statement(cfile);
-			break;
-
-		      default:
+		if (token != LEASE) {
 			log_error ("Corrupt lease file - possible data loss!");
 			skip_to_semi (cfile);
 			break;
-		}
+		} else
+			parse_client_lease_statement (cfile, 0);
+
 	} while (1);
 
 	end_parse (&cfile);
@@ -290,8 +219,6 @@ void read_client_leases ()
 	PREPEND option-decl |
 	APPEND option-decl |
 	hardware-declaration |
-	ALSO REQUEST option-list |
-	ALSO REQUIRE option-list |
 	REQUEST option-list |
 	REQUIRE option-list |
 	TIMEOUT number |
@@ -312,15 +239,16 @@ void parse_client_statement (cfile, ip, config)
 {
 	int token;
 	const char *val;
-	struct option *option = NULL;
-	struct executable_statement *stmt;
+	struct option *option;
+	struct executable_statement *stmt, **p;
+	enum statement_op op;
 	int lose;
 	char *name;
+	struct data_string key_id;
 	enum policy policy;
 	int known;
 	int tmp, i;
 	isc_result_t status;
-	struct option ***append_list, **new_list, **cat_list;
 
 	switch (peek_token (&val, (unsigned *)0, cfile)) {
 	      case INCLUDE:
@@ -357,73 +285,6 @@ void parse_client_statement (cfile, ip, config)
 			break;
 		}
 		parse_key (cfile);
-		return;
-
-	      case TOKEN_ALSO:
-		/* consume ALSO */
-		next_token(&val, NULL, cfile);
-
-		/* consume type of ALSO list. */
-		token = next_token(&val, NULL, cfile);
-
-		if (token == REQUEST) {
-			append_list = &config->requested_options;
-		} else if (token == REQUIRE) {
-			append_list = &config->required_options;
-		} else {
-			parse_warn(cfile, "expected REQUEST or REQUIRE list");
-			skip_to_semi(cfile);
-			return;
-		}
-
-		/* If there is no list, cut the concat short. */
-		if (*append_list == NULL) {
-			parse_option_list(cfile, append_list);
-			return;
-		}
-
-		/* Count the length of the existing list. */
-		for (i = 0 ; (*append_list)[i] != NULL ; i++)
-			; /* This space intentionally left blank. */
-
-		/* If there's no codes on the list, cut the concat short. */
-		if (i == 0) {
-			parse_option_list(cfile, append_list);
-			return;
-		}
-
-		tmp = parse_option_list(cfile, &new_list);
-
-		if (tmp == 0 || new_list == NULL)
-			return;
-
-		/* Allocate 'i + tmp' buckets plus a terminator. */
-		cat_list = dmalloc(sizeof(struct option *) * (i + tmp + 1),
-				   MDL);
-
-		if (cat_list == NULL) {
-			log_error("Unable to allocate memory for new "
-				  "request list.");
-			skip_to_semi(cfile);
-			return;
-		}
-
-		for (i = 0 ; (*append_list)[i] != NULL ; i++)
-			option_reference(&cat_list[i], (*append_list)[i], MDL);
-
-		tmp = i;
-
-		for (i = 0 ; new_list[i] != 0 ; i++)
-			option_reference(&cat_list[tmp++], new_list[i], MDL);
-
-		cat_list[tmp] = 0;
-
-		/* XXX: We cannot free the old list, because it may have been
-		 * XXX: assigned from an outer configuration scope (or may be
-		 * XXX: the static default setting).
-		 */
-		*append_list = cat_list;
-
 		return;
 
 		/* REQUIRE can either start a policy statement or a
@@ -502,15 +363,15 @@ void parse_client_statement (cfile, ip, config)
 			return;
 		}
 
-		status = parse_option_name(cfile, 1, &known, &option);
-		if (status != ISC_R_SUCCESS || option == NULL)
+		option = parse_option_name (cfile, 1, &known);
+		if (!option)
 			return;
 
 		token = next_token (&val, (unsigned *)0, cfile);
 		if (token != CODE) {
 			parse_warn (cfile, "expecting \"code\" keyword.");
 			skip_to_semi (cfile);
-			option_dereference(&option, MDL);
+			free_option (option, MDL);
 			return;
 		}
 		if (ip) {
@@ -518,11 +379,11 @@ void parse_client_statement (cfile, ip, config)
 				    "option definitions may only appear in %s",
 				    "the outermost scope.");
 			skip_to_semi (cfile);
-			option_dereference(&option, MDL);
+			free_option (option, MDL);
 			return;
 		}
-		parse_option_code_definition(cfile, option);
-		option_dereference(&option, MDL);
+		if (!parse_option_code_definition (cfile, option))
+			free_option (option, MDL);
 		return;
 
 	      case MEDIA:
@@ -544,7 +405,7 @@ void parse_client_statement (cfile, ip, config)
 	      case REQUEST:
 		token = next_token (&val, (unsigned *)0, cfile);
 		if (config -> requested_options == default_requested_options)
-			config -> requested_options = NULL;
+			config -> requested_options = (u_int32_t *)0;
 		parse_option_list (cfile, &config -> requested_options);
 		return;
 
@@ -741,15 +602,15 @@ void parse_client_statement (cfile, ip, config)
 /* option-list :== option_name |
    		   option_list COMMA option_name */
 
-int
-parse_option_list(struct parse *cfile, struct option ***list)
+void parse_option_list (cfile, list)
+	struct parse *cfile;
+	u_int32_t **list;
 {
 	int ix;
 	int token;
 	const char *val;
 	pair p = (pair)0, q = (pair)0, r;
-	struct option *option = NULL;
-	isc_result_t status;
+	struct option *option;
 
 	ix = 0;
 	do {
@@ -762,19 +623,24 @@ parse_option_list(struct parse *cfile, struct option ***list)
 			parse_warn (cfile, "%s: expected option name.", val);
 			token = next_token (&val, (unsigned *)0, cfile);
 			skip_to_semi (cfile);
-			return 0;
+			return;
 		}
-		status = parse_option_name(cfile, 0, NULL, &option);
-		if (status != ISC_R_SUCCESS || option == NULL) {
+		option = parse_option_name (cfile, 0, NULL);
+		if (!option) {
 			parse_warn (cfile, "%s: expected option name.", val);
-			return 0;
+			return;
+		}
+		if (option -> universe != &dhcp_universe) {
+			parse_warn (cfile,
+				"%s.%s: Only global options allowed.",
+				option -> universe -> name, option->name );
+			skip_to_semi (cfile);
+			return;
 		}
 		r = new_pair (MDL);
 		if (!r)
 			log_fatal ("can't allocate pair for option code.");
-		/* XXX: we should probably carry a reference across this */
-		r->car = (caddr_t)option;
-		option_dereference(&option, MDL);
+		r -> car = (caddr_t)(long)option -> code;
 		r -> cdr = (pair)0;
 		if (p)
 			q -> cdr = r;
@@ -787,21 +653,20 @@ parse_option_list(struct parse *cfile, struct option ***list)
 	if (token != SEMI) {
 		parse_warn (cfile, "expecting semicolon.");
 		skip_to_semi (cfile);
-		return 0;
+		return;
 	}
 	/* XXX we can't free the list here, because we may have copied
 	   XXX it from an outer config state. */
-	*list = NULL;
+	*list = (u_int32_t *)0;
 	if (ix) {
-		*list = dmalloc ((ix + 1) * sizeof(struct option *), MDL);
+		*list = dmalloc ((ix + 1) * sizeof **list, MDL);
 		if (!*list)
 			log_error ("no memory for option list.");
 		else {
 			ix = 0;
 			for (q = p; q; q = q -> cdr)
-				option_reference(&(*list)[ix++],
-						 (struct option *)q->car, MDL);
-			(*list)[ix] = NULL;
+				(*list) [ix++] = (u_int32_t)(long)q -> car;
+			(*list) [ix] = 0;
 		}
 		while (p) {
 			q = p -> cdr;
@@ -809,8 +674,6 @@ parse_option_list(struct parse *cfile, struct option ***list)
 			p = q;
 		}
 	}
-
-	return ix;
 }
 
 /* interface-declaration :==
@@ -959,7 +822,7 @@ void make_client_config (client, config)
 }
 
 /* client-lease-statement :==
-	LBRACE client-lease-declarations RBRACE
+	RBRACE client-lease-declarations LBRACE
 
 	client-lease-declarations :==
 		<nil> |
@@ -1104,9 +967,11 @@ void parse_client_lease_declaration (cfile, lease, ipp, clientp)
 {
 	int token;
 	const char *val;
+	char *t, *n;
 	struct interface_info *ip;
 	struct option_cache *oc;
 	struct client_state *client = (struct client_state *)0;
+	struct data_string key_id;
 
 	switch (next_token (&val, (unsigned *)0, cfile)) {
 	      case KEY:
@@ -1185,7 +1050,8 @@ void parse_client_lease_declaration (cfile, lease, ipp, clientp)
 	      case OPTION:
 		oc = (struct option_cache *)0;
 		if (parse_option_decl (&oc, cfile)) {
-			save_option(oc->option->universe, lease->options, oc);
+			save_option (oc -> option -> universe,
+				     lease -> options, oc);
 			option_cache_dereference (&oc, MDL);
 		}
 		return;
@@ -1201,902 +1067,6 @@ void parse_client_lease_declaration (cfile, lease, ipp, clientp)
 		skip_to_semi (cfile);
 	}
 }
-
-/* Parse a default-duid ""; statement.
- */
-static void
-parse_client_default_duid(struct parse *cfile)
-{
-	struct data_string new_duid;
-	const char *val = NULL;
-	unsigned len;
-	int token;
-
-	memset(&new_duid, 0, sizeof(new_duid));
-
-	token = next_token(&val, &len, cfile);
-	if (token != STRING) {
-		parse_warn(cfile, "Expected DUID string.");
-		skip_to_semi(cfile);
-		return;
-	}
-
-	if (len <= 2) {
-		parse_warn(cfile, "Invalid DUID contents.");
-		skip_to_semi(cfile);
-		return;
-	}
-
-	if (!buffer_allocate(&new_duid.buffer, len, MDL)) {
-		parse_warn(cfile, "Out of memory parsing default DUID.");
-		skip_to_semi(cfile);
-		return;
-	}
-	new_duid.data = new_duid.buffer->data;
-	new_duid.len = len;
-
-	memcpy(new_duid.buffer->data, val, len);
-
-	/* Rotate the last entry into place. */
-	if (default_duid.buffer != NULL)
-		data_string_forget(&default_duid, MDL);
-	data_string_copy(&default_duid, &new_duid, MDL);
-	data_string_forget(&new_duid, MDL);
-
-	parse_semi(cfile);
-}
-
-/* Parse a lease6 {} construct.  The v6 client is a little different
- * than the v4 client today, in that it only retains one lease, the
- * active lease, and discards any less recent information.  It may
- * be useful in the future to cache additional information, but it
- * is not worth the effort for the moment.
- */
-static void
-parse_client6_lease_statement(struct parse *cfile)
-{
-#if !defined(DHCPv6)
-	parse_warn(cfile, "No DHCPv6 support.");
-	skip_to_semi(cfile);
-#else /* defined(DHCPv6) */
-	struct option_cache *oc = NULL;
-	struct dhc6_lease *lease;
-	struct dhc6_ia **ia;
-	struct client_state *client = NULL;
-	struct interface_info *iface = NULL;
-	struct data_string ds;
-	const char *val;
-	unsigned len;
-	int token, has_ia, no_semi, has_name;
-
-	token = next_token(NULL, NULL, cfile);
-	if (token != LBRACE) {
-		parse_warn(cfile, "Expecting open curly brace.");
-		skip_to_semi(cfile);
-		return;
-	}
-
-	lease = dmalloc(sizeof(*lease), MDL);
-	if (lease == NULL) {
-		parse_warn(cfile, "Unable to allocate lease state.");
-		skip_to_rbrace(cfile, 1);
-		return;
-	}
-
-	option_state_allocate(&lease->options, MDL);
-	if (lease->options == NULL) {
-		parse_warn(cfile, "Unable to allocate option cache.");
-		skip_to_rbrace(cfile, 1);
-		dfree(lease, MDL);
-		return;
-	}
-
-	has_ia = 0;
-	has_name = 0;
-	ia = &lease->bindings;
-	token = next_token(&val, NULL, cfile);
-	while (token != RBRACE) {
-		no_semi = 0;
-
-		switch(token) {
-		      case IA_NA:
-			*ia = parse_client6_ia_na_statement(cfile);
-			if (*ia != NULL) {
-				ia = &(*ia)->next;
-				has_ia = 1;
-			}
-
-			no_semi = 1;
-
-			break;
-
-		      case IA_TA:
-			*ia = parse_client6_ia_ta_statement(cfile);
-			if (*ia != NULL) {
-				ia = &(*ia)->next;
-				has_ia = 1;
-			}
-
-			no_semi = 1;
-
-			break;
-
-		      case IA_PD:
-			*ia = parse_client6_ia_pd_statement(cfile);
-			if (*ia != NULL) {
-				ia = &(*ia)->next;
-				has_ia = 1;
-			}
-
-			no_semi = 1;
-
-			break;
-
-		      case INTERFACE:
-			if (iface != NULL) {
-				parse_warn(cfile, "Multiple interface names?");
-				skip_to_semi(cfile);
-				no_semi = 1;
-				break;
-			}
-
-			token = next_token(&val, &len, cfile);
-			if (token != STRING) {
-			      strerror:
-				parse_warn(cfile, "Expecting a string.");
-				skip_to_semi(cfile);
-				no_semi = 1;
-				break;
-			}
-
-			for (iface = interfaces ; iface != NULL ;
-			     iface = iface->next) {
-				if (strcmp(iface->name, val) == 0)
-					break;
-			}
-
-			if (iface == NULL) {
-				parse_warn(cfile, "Unknown interface.");
-				break;
-			}
-
-			break;
-
-		      case NAME:
-			has_name = 1;
-
-			if (client != NULL) {
-				parse_warn(cfile, "Multiple state names?");
-				skip_to_semi(cfile);
-				no_semi = 1;
-				break;
-			}
-
-			if (iface == NULL) {
-				parse_warn(cfile, "Client name without "
-						  "interface.");
-				skip_to_semi(cfile);
-				no_semi = 1;
-				break;
-			}
-
-			token = next_token(&val, &len, cfile);
-			if (token != STRING)
-				goto strerror;
-
-			for (client = iface->client ; client != NULL ;
-			     client = client->next) {
-				if ((client->name != NULL) &&
-				    (strcmp(client->name, val) == 0))
-					break;
-			}
-
-			if (client == NULL) {
-				parse_warn(cfile, "Unknown client state %s.",
-					   val);
-				break;
-			}
-
-			break;
-
-		      case OPTION:
-			if (parse_option_decl(&oc, cfile)) {
-				save_option(oc->option->universe,
-					    lease->options, oc);
-				option_cache_dereference(&oc, MDL);
-			}
-			no_semi = 1;
-			break;
-
-		      case TOKEN_RELEASED:
-		      case TOKEN_ABANDONED:
-			lease->released = ISC_TRUE;
-			break;
-
-		      default:
-			parse_warn(cfile, "Unexpected token, %s.", val);
-			no_semi = 1;
-			skip_to_semi(cfile);
-			break;
-		}
-
-		if (!no_semi)
-			parse_semi(cfile);
-
-		token = next_token(&val, NULL, cfile);
-
-		if (token == END_OF_FILE) {
-			parse_warn(cfile, "Unexpected end of file.");
-			break;
-		}
-	}
-
-	if (!has_ia) {
-		log_debug("Lease with no IA's discarded from lease db.");
-		dhc6_lease_destroy(&lease, MDL);
-		return;
-	}
-
-	if (iface == NULL)
-		parse_warn(cfile, "Lease has no interface designation.");
-	else if (!has_name && (client == NULL)) {
-		for (client = iface->client ; client != NULL ;
-		     client = client->next) {
-			if (client->name == NULL)
-				break;
-		}
-	}
-
-	if (client == NULL) {
-		parse_warn(cfile, "No matching client state.");
-		dhc6_lease_destroy(&lease, MDL);
-		return;
-	}
-
-	/* Fetch Preference option from option cache. */
-	memset(&ds, 0, sizeof(ds));
-	oc = lookup_option(&dhcpv6_universe, lease->options, D6O_PREFERENCE);
-	if ((oc != NULL) &&
-	    evaluate_option_cache(&ds, NULL, NULL, NULL, lease->options,
-				  NULL, &global_scope, oc, MDL)) {
-		if (ds.len != 1) {
-			log_error("Invalid length of DHCPv6 Preference option "
-				  "(%d != 1)", ds.len);
-			data_string_forget(&ds, MDL);
-			dhc6_lease_destroy(&lease, MDL);
-			return;
-		} else
-			lease->pref = ds.data[0];
-
-		data_string_forget(&ds, MDL);
-	}
-
-	/* Fetch server-id option from option cache. */
-	oc = lookup_option(&dhcpv6_universe, lease->options, D6O_SERVERID);
-	if ((oc == NULL) ||
-	    !evaluate_option_cache(&lease->server_id, NULL, NULL, NULL,
-				   lease->options, NULL, &global_scope, oc,
-				   MDL) ||
-	    (lease->server_id.len == 0)) {
-		/* This should be impossible... */
-		log_error("Invalid SERVERID option cache.");
-		dhc6_lease_destroy(&lease, MDL);
-		return;
-	}
-
-	if (client->active_lease != NULL)
-		dhc6_lease_destroy(&client->active_lease, MDL);
-
-	client->active_lease = lease;
-#endif /* defined(DHCPv6) */
-}
-
-/* Parse an ia_na object from the client lease.
- */
-#ifdef DHCPv6
-static struct dhc6_ia *
-parse_client6_ia_na_statement(struct parse *cfile)
-{
-	struct data_string id;
-	struct option_cache *oc = NULL;
-	struct dhc6_ia *ia;
-	struct dhc6_addr **addr;
-	const char *val;
-	int token, no_semi;
-
-	ia = dmalloc(sizeof(*ia), MDL);
-	if (ia == NULL) {
-		parse_warn(cfile, "Out of memory allocating IA_NA state.");
-		skip_to_semi(cfile);
-		return NULL;
-	}
-	ia->ia_type = D6O_IA_NA;
-
-	/* Get IAID. */
-	memset(&id, 0, sizeof(id));
-	if (parse_cshl(&id, cfile)) {
-		if (id.len == 4)
-			memcpy(ia->iaid, id.data, 4);
-		else {
-			parse_warn(cfile, "Expecting IAID of length 4, got %d.",
-				   id.len);
-			skip_to_semi(cfile);
-			dfree(ia, MDL);
-			return NULL;
-		}
-		data_string_forget(&id, MDL);
-	} else {
-		parse_warn(cfile, "Expecting IAID.");
-		skip_to_semi(cfile);
-		dfree(ia, MDL);
-		return NULL;
-	}
-
-	token = next_token(NULL, NULL, cfile);
-	if (token != LBRACE) {
-		parse_warn(cfile, "Expecting open curly brace.");
-		skip_to_semi(cfile);
-		dfree(ia, MDL);
-		return NULL;
-	}
-
-	option_state_allocate(&ia->options, MDL);
-	if (ia->options == NULL) {
-		parse_warn(cfile, "Unable to allocate option state.");
-		skip_to_rbrace(cfile, 1);
-		dfree(ia, MDL);
-		return NULL;
-	}
-
-	addr = &ia->addrs;
-	token = next_token(&val, NULL, cfile);
-	while (token != RBRACE) {
-		no_semi = 0;
-
-		switch (token) {
-		      case STARTS:
-			token = next_token(&val, NULL, cfile);
-			if (token == NUMBER) {
-				ia->starts = atoi(val);
-			} else {
-				parse_warn(cfile, "Expecting a number.");
-				skip_to_semi(cfile);
-				no_semi = 1;
-			}
-			break;
-
-		      case RENEW:
-			token = next_token(&val, NULL, cfile);
-			if (token == NUMBER) {
-				ia->renew = atoi(val);
-			} else {
-				parse_warn(cfile, "Expecting a number.");
-				skip_to_semi(cfile);
-				no_semi = 1;
-			}
-			break;
-
-		      case REBIND:
-			token = next_token(&val, NULL, cfile);
-			if (token == NUMBER) {
-				ia->rebind = atoi(val);
-			} else {
-				parse_warn(cfile, "Expecting a number.");
-				skip_to_semi(cfile);
-				no_semi = 1;
-			}
-			break;
-
-		      case IAADDR:
-			*addr = parse_client6_iaaddr_statement(cfile);
-
-			if (*addr != NULL)
-				addr = &(*addr)->next;
-
-			no_semi = 1;
-
-			break;
-
-		      case OPTION:
-			if (parse_option_decl(&oc, cfile)) {
-				save_option(oc->option->universe,
-					    ia->options, oc);
-				option_cache_dereference(&oc, MDL);
-			}
-			no_semi = 1;
-			break;
-
-		      default:
-			parse_warn(cfile, "Unexpected token.");
-			no_semi = 1;
-			skip_to_semi(cfile);
-			break;
-		}
-
-		if (!no_semi)
-			parse_semi(cfile);
-
-		token = next_token(&val, NULL, cfile);
-
-		if (token == END_OF_FILE) {
-			parse_warn(cfile, "Unexpected end of file.");
-			break;
-		}
-	}
-
-	return ia;
-}
-#endif /* DHCPv6 */
-
-/* Parse an ia_ta object from the client lease.
- */
-#ifdef DHCPv6
-static struct dhc6_ia *
-parse_client6_ia_ta_statement(struct parse *cfile)
-{
-	struct data_string id;
-	struct option_cache *oc = NULL;
-	struct dhc6_ia *ia;
-	struct dhc6_addr **addr;
-	const char *val;
-	int token, no_semi;
-
-	ia = dmalloc(sizeof(*ia), MDL);
-	if (ia == NULL) {
-		parse_warn(cfile, "Out of memory allocating IA_TA state.");
-		skip_to_semi(cfile);
-		return NULL;
-	}
-	ia->ia_type = D6O_IA_TA;
-
-	/* Get IAID. */
-	memset(&id, 0, sizeof(id));
-	if (parse_cshl(&id, cfile)) {
-		if (id.len == 4)
-			memcpy(ia->iaid, id.data, 4);
-		else {
-			parse_warn(cfile, "Expecting IAID of length 4, got %d.",
-				   id.len);
-			skip_to_semi(cfile);
-			dfree(ia, MDL);
-			return NULL;
-		}
-		data_string_forget(&id, MDL);
-	} else {
-		parse_warn(cfile, "Expecting IAID.");
-		skip_to_semi(cfile);
-		dfree(ia, MDL);
-		return NULL;
-	}
-
-	token = next_token(NULL, NULL, cfile);
-	if (token != LBRACE) {
-		parse_warn(cfile, "Expecting open curly brace.");
-		skip_to_semi(cfile);
-		dfree(ia, MDL);
-		return NULL;
-	}
-
-	option_state_allocate(&ia->options, MDL);
-	if (ia->options == NULL) {
-		parse_warn(cfile, "Unable to allocate option state.");
-		skip_to_rbrace(cfile, 1);
-		dfree(ia, MDL);
-		return NULL;
-	}
-
-	addr = &ia->addrs;
-	token = next_token(&val, NULL, cfile);
-	while (token != RBRACE) {
-		no_semi = 0;
-
-		switch (token) {
-		      case STARTS:
-			token = next_token(&val, NULL, cfile);
-			if (token == NUMBER) {
-				ia->starts = atoi(val);
-			} else {
-				parse_warn(cfile, "Expecting a number.");
-				skip_to_semi(cfile);
-				no_semi = 1;
-			}
-			break;
-
-			/* No RENEW or REBIND */
-
-		      case IAADDR:
-			*addr = parse_client6_iaaddr_statement(cfile);
-
-			if (*addr != NULL)
-				addr = &(*addr)->next;
-
-			no_semi = 1;
-
-			break;
-
-		      case OPTION:
-			if (parse_option_decl(&oc, cfile)) {
-				save_option(oc->option->universe,
-					    ia->options, oc);
-				option_cache_dereference(&oc, MDL);
-			}
-			no_semi = 1;
-			break;
-
-		      default:
-			parse_warn(cfile, "Unexpected token.");
-			no_semi = 1;
-			skip_to_semi(cfile);
-			break;
-		}
-
-		if (!no_semi)
-			parse_semi(cfile);
-
-		token = next_token(&val, NULL, cfile);
-
-		if (token == END_OF_FILE) {
-			parse_warn(cfile, "Unexpected end of file.");
-			break;
-		}
-	}
-
-	return ia;
-}
-#endif /* DHCPv6 */
-
-/* Parse an ia_pd object from the client lease.
- */
-#ifdef DHCPv6
-static struct dhc6_ia *
-parse_client6_ia_pd_statement(struct parse *cfile)
-{
-	struct data_string id;
-	struct option_cache *oc = NULL;
-	struct dhc6_ia *ia;
-	struct dhc6_addr **pref;
-	const char *val;
-	int token, no_semi;
-
-	ia = dmalloc(sizeof(*ia), MDL);
-	if (ia == NULL) {
-		parse_warn(cfile, "Out of memory allocating IA_PD state.");
-		skip_to_semi(cfile);
-		return NULL;
-	}
-	ia->ia_type = D6O_IA_PD;
-
-	/* Get IAID. */
-	memset(&id, 0, sizeof(id));
-	if (parse_cshl(&id, cfile)) {
-		if (id.len == 4)
-			memcpy(ia->iaid, id.data, 4);
-		else {
-			parse_warn(cfile, "Expecting IAID of length 4, got %d.",
-				   id.len);
-			skip_to_semi(cfile);
-			dfree(ia, MDL);
-			return NULL;
-		}
-		data_string_forget(&id, MDL);
-	} else {
-		parse_warn(cfile, "Expecting IAID.");
-		skip_to_semi(cfile);
-		dfree(ia, MDL);
-		return NULL;
-	}
-
-	token = next_token(NULL, NULL, cfile);
-	if (token != LBRACE) {
-		parse_warn(cfile, "Expecting open curly brace.");
-		skip_to_semi(cfile);
-		dfree(ia, MDL);
-		return NULL;
-	}
-
-	option_state_allocate(&ia->options, MDL);
-	if (ia->options == NULL) {
-		parse_warn(cfile, "Unable to allocate option state.");
-		skip_to_rbrace(cfile, 1);
-		dfree(ia, MDL);
-		return NULL;
-	}
-
-	pref = &ia->addrs;
-	token = next_token(&val, NULL, cfile);
-	while (token != RBRACE) {
-		no_semi = 0;
-
-		switch (token) {
-		      case STARTS:
-			token = next_token(&val, NULL, cfile);
-			if (token == NUMBER) {
-				ia->starts = atoi(val);
-			} else {
-				parse_warn(cfile, "Expecting a number.");
-				skip_to_semi(cfile);
-				no_semi = 1;
-			}
-			break;
-
-		      case RENEW:
-			token = next_token(&val, NULL, cfile);
-			if (token == NUMBER) {
-				ia->renew = atoi(val);
-			} else {
-				parse_warn(cfile, "Expecting a number.");
-				skip_to_semi(cfile);
-				no_semi = 1;
-			}
-			break;
-
-		      case REBIND:
-			token = next_token(&val, NULL, cfile);
-			if (token == NUMBER) {
-				ia->rebind = atoi(val);
-			} else {
-				parse_warn(cfile, "Expecting a number.");
-				skip_to_semi(cfile);
-				no_semi = 1;
-			}
-			break;
-
-		      case IAPREFIX:
-			*pref = parse_client6_iaprefix_statement(cfile);
-
-			if (*pref != NULL)
-				pref = &(*pref)->next;
-
-			no_semi = 1;
-
-			break;
-
-		      case OPTION:
-			if (parse_option_decl(&oc, cfile)) {
-				save_option(oc->option->universe,
-					    ia->options, oc);
-				option_cache_dereference(&oc, MDL);
-			}
-			no_semi = 1;
-			break;
-
-		      default:
-			parse_warn(cfile, "Unexpected token.");
-			no_semi = 1;
-			skip_to_semi(cfile);
-			break;
-		}
-
-		if (!no_semi)
-			parse_semi(cfile);
-
-		token = next_token(&val, NULL, cfile);
-
-		if (token == END_OF_FILE) {
-			parse_warn(cfile, "Unexpected end of file.");
-			break;
-		}
-	}
-
-	return ia;
-}
-#endif /* DHCPv6 */
-
-/* Parse an iaaddr {} structure. */
-#ifdef DHCPv6
-static struct dhc6_addr *
-parse_client6_iaaddr_statement(struct parse *cfile)
-{
-	struct option_cache *oc = NULL;
-	struct dhc6_addr *addr;
-	const char *val;
-	int token, no_semi;
-
-	addr = dmalloc(sizeof(*addr), MDL);
-	if (addr == NULL) {
-		parse_warn(cfile, "Unable to allocate IAADDR state.");
-		skip_to_semi(cfile);
-		return NULL;
-	}
-
-	/* Get IP address. */
-	if (!parse_ip6_addr(cfile, &addr->address)) {
-		skip_to_semi(cfile);
-		dfree(addr, MDL);
-		return NULL;
-	}
-
-	token = next_token(NULL, NULL, cfile);
-	if (token != LBRACE) {
-		parse_warn(cfile, "Expecting open curly bracket.");
-		skip_to_semi(cfile);
-		dfree(addr, MDL);
-		return NULL;
-	}
-
-	option_state_allocate(&addr->options, MDL);
-	if (addr->options == NULL) {
-		parse_warn(cfile, "Unable to allocate option state.");
-		skip_to_semi(cfile);
-		dfree(addr, MDL);
-		return NULL;
-	}
-
-	token = next_token(&val, NULL, cfile);
-	while (token != RBRACE) {
-		no_semi = 0;
-
-		switch (token) {
-		      case STARTS:
-			token = next_token(&val, NULL, cfile);
-			if (token == NUMBER) {
-				addr->starts = atoi(val);
-			} else {
-				parse_warn(cfile, "Expecting a number.");
-				skip_to_semi(cfile);
-				no_semi = 1;
-			}
-			break;
-
-		      case PREFERRED_LIFE:
-			token = next_token(&val, NULL, cfile);
-			if (token == NUMBER) {
-				addr->preferred_life = atoi(val);
-			} else {
-				parse_warn(cfile, "Expecting a number.");
-				skip_to_semi(cfile);
-				no_semi = 1;
-			}
-			break;
-
-		      case MAX_LIFE:
-			token = next_token(&val, NULL, cfile);
-			if (token == NUMBER) {
-				addr->max_life = atoi(val);
-			} else {
-				parse_warn(cfile, "Expecting a number.");
-				skip_to_semi(cfile);
-				no_semi = 1;
-			}
-			break;
-
-		      case OPTION:
-			if (parse_option_decl(&oc, cfile)) {
-				save_option(oc->option->universe,
-					    addr->options, oc);
-				option_cache_dereference(&oc, MDL);
-			}
-			no_semi = 1;
-			break;
-
-		      default:
-			parse_warn(cfile, "Unexpected token.");
-			skip_to_rbrace(cfile, 1);
-			no_semi = 1;
-			break;
-		}
-
-		if (!no_semi)
-			parse_semi(cfile);
-
-		token = next_token(&val, NULL, cfile);
-		if (token == END_OF_FILE) {
-			parse_warn(cfile, "Unexpected end of file.");
-			break;
-		}
-	}
-
-	return addr;
-}
-#endif /* DHCPv6 */
-
-/* Parse an iaprefix {} structure. */
-#ifdef DHCPv6
-static struct dhc6_addr *
-parse_client6_iaprefix_statement(struct parse *cfile)
-{
-	struct option_cache *oc = NULL;
-	struct dhc6_addr *pref;
-	const char *val;
-	int token, no_semi;
-
-	pref = dmalloc(sizeof(*pref), MDL);
-	if (pref == NULL) {
-		parse_warn(cfile, "Unable to allocate IAPREFIX state.");
-		skip_to_semi(cfile);
-		return NULL;
-	}
-
-	/* Get IP prefix. */
-	if (!parse_ip6_prefix(cfile, &pref->address, &pref->plen)) {
-		skip_to_semi(cfile);
-		dfree(pref, MDL);
-		return NULL;
-	}
-
-	token = next_token(NULL, NULL, cfile);
-	if (token != LBRACE) {
-		parse_warn(cfile, "Expecting open curly bracket.");
-		skip_to_semi(cfile);
-		dfree(pref, MDL);
-		return NULL;
-	}
-
-	option_state_allocate(&pref->options, MDL);
-	if (pref->options == NULL) {
-		parse_warn(cfile, "Unable to allocate option state.");
-		skip_to_semi(cfile);
-		dfree(pref, MDL);
-		return NULL;
-	}
-
-	token = next_token(&val, NULL, cfile);
-	while (token != RBRACE) {
-		no_semi = 0;
-
-		switch (token) {
-		      case STARTS:
-			token = next_token(&val, NULL, cfile);
-			if (token == NUMBER) {
-				pref->starts = atoi(val);
-			} else {
-				parse_warn(cfile, "Expecting a number.");
-				skip_to_semi(cfile);
-				no_semi = 1;
-			}
-			break;
-
-		      case PREFERRED_LIFE:
-			token = next_token(&val, NULL, cfile);
-			if (token == NUMBER) {
-				pref->preferred_life = atoi(val);
-			} else {
-				parse_warn(cfile, "Expecting a number.");
-				skip_to_semi(cfile);
-				no_semi = 1;
-			}
-			break;
-
-		      case MAX_LIFE:
-			token = next_token(&val, NULL, cfile);
-			if (token == NUMBER) {
-				pref->max_life = atoi(val);
-			} else {
-				parse_warn(cfile, "Expecting a number.");
-				skip_to_semi(cfile);
-				no_semi = 1;
-			}
-			break;
-
-		      case OPTION:
-			if (parse_option_decl(&oc, cfile)) {
-				save_option(oc->option->universe,
-					    pref->options, oc);
-				option_cache_dereference(&oc, MDL);
-			}
-			no_semi = 1;
-			break;
-
-		      default:
-			parse_warn(cfile, "Unexpected token.");
-			skip_to_rbrace(cfile, 1);
-			no_semi = 1;
-			break;
-		}
-
-		if (!no_semi)
-			parse_semi(cfile);
-
-		token = next_token(&val, NULL, cfile);
-		if (token == END_OF_FILE) {
-			parse_warn(cfile, "Unexpected end of file.");
-			break;
-		}
-	}
-
-	return pref;
-}
-#endif /* DHCPv6 */
 
 void parse_string_list (cfile, lp, multiple)
 	struct parse *cfile;
@@ -2154,49 +1124,24 @@ void parse_reject_statement (cfile, config)
 {
 	int token;
 	const char *val;
-	struct iaddrmatch match;
-	struct iaddrmatchlist *list;
-	int i;
+	struct iaddr addr;
+	struct iaddrlist *list;
 
 	do {
-		if (!parse_ip_addr_with_subnet (cfile, &match)) {
-			/* no warn: parser will have reported what's wrong */
+		if (!parse_ip_addr (cfile, &addr)) {
+			parse_warn (cfile, "expecting IP address.");
 			skip_to_semi (cfile);
 			return;
 		}
 
-		/* check mask is not all zeros (because that would
-		 * reject EVERY address).  This check could be
-		 * simplified if we assume that the mask *always*
-		 * represents a prefix .. but perhaps it might be
-		 * useful to have a mask which is not a proper prefix
-		 * (perhaps for ipv6?).  The following is almost as
-		 * efficient as inspection of match.mask.iabuf[0] when
-		 * it IS a true prefix, and is more general when it is
-		 * not.
-		 */
-
-		for (i=0 ; i < match.mask.len ; i++) {
-		    if (match.mask.iabuf[i]) {
-			break;
-		    }
-		}
-
-		if (i == match.mask.len) {
-		    /* oops we found all zeros */
-		    parse_warn(cfile, "zero-length prefix is not permitted "
-				      "for reject statement");
-		    skip_to_semi(cfile);
-		    return;
-		} 
-
-		list = dmalloc(sizeof(struct iaddrmatchlist), MDL);
+		list = (struct iaddrlist *)dmalloc (sizeof (struct iaddrlist),
+						    MDL);
 		if (!list)
 			log_fatal ("no memory for reject list!");
 
-		list->match = match;
-		list->next = config->reject_list;
-		config->reject_list = list;
+		list -> addr = addr;
+		list -> next = config -> reject_list;
+		config -> reject_list = list;
 
 		token = next_token (&val, (unsigned *)0, cfile);
 	} while (token == COMMA);
@@ -2217,6 +1162,12 @@ int parse_allow_deny (oc, cfile, flag)
 	struct parse *cfile;
 	int flag;
 {
+	enum dhcp_token token;
+	const char *val;
+	unsigned char rf = flag;
+	struct expression *data = (struct expression *)0;
+	int status;
+
 	parse_warn (cfile, "allow/deny/ignore not permitted here.");
 	skip_to_semi (cfile);
 	return 0;

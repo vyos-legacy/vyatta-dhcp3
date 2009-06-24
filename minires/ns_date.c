@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004,2007 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1999-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -22,7 +22,7 @@
  */
 
 #ifndef lint
-static const char rcsid[] = "$Id: ns_date.c,v 1.6 2007/09/05 17:32:10 dhankins Exp $";
+static const char rcsid[] = "$Id: ns_date.c,v 1.2.2.1 2004/06/10 17:59:40 dhankins Exp $";
 #endif
 
 /* Import. */
@@ -123,7 +123,7 @@ datepart(const char *buf, int size, int min, int max, int *errp) {
 	int i;
 
 	for (i = 0; i < size; i++) {
-		if (!isdigit((unsigned char)buf[i]))
+		if (!isdigit(buf[i]))
 			*errp = 1;
 		result = (result * 10) + buf[i] - '0';
 	}

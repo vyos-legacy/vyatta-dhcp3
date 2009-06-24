@@ -3,7 +3,7 @@
    Subroutines having to do with authentication. */
 
 /*
- * Copyright (c) 2004,2007 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1998-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -32,7 +32,10 @@
  * ``http://www.nominum.com''.
  */
 
-#include "dhcpd.h"
+#ifndef lint
+static char ocopyright[] =
+"$Id: auth.c,v 1.3.2.4 2004/06/10 17:59:46 dhankins Exp $ Copyright 2004 Internet Systems Consortium.";
+#endif
 
 #include <omapip/omapip_p.h>
 
@@ -43,8 +46,7 @@ HASH_FUNCTIONS_DECL (omapi_auth_key, const char *,
 omapi_auth_hash_t *auth_key_hash;
 HASH_FUNCTIONS (omapi_auth_key, const char *, omapi_auth_key_t,
 		omapi_auth_hash_t,
-		omapi_auth_key_reference, omapi_auth_key_dereference,
-		do_case_hash)
+		omapi_auth_key_reference, omapi_auth_key_dereference)
 
 isc_result_t omapi_auth_key_new (omapi_auth_key_t **o, const char *file,
 				 int line)
@@ -95,8 +97,7 @@ isc_result_t omapi_auth_key_enter (omapi_auth_key_t *a)
 			omapi_auth_key_dereference (&tk, MDL);
 		}
 	} else {
-		if (!omapi_auth_key_new_hash(&auth_key_hash,
-					     KEY_HASH_SIZE, MDL))
+		if (!omapi_auth_key_new_hash (&auth_key_hash, 1, MDL))
 			return ISC_R_NOMEMORY;
 	}
 	omapi_auth_key_hash_add (auth_key_hash, a -> name, 0, a, MDL);

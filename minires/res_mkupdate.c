@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004,2007-2008 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1996-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -27,7 +27,7 @@
  */
 
 #if !defined(lint) && !defined(SABER)
-static const char rcsid[] = "$Id: res_mkupdate.c,v 1.14 2008/11/03 21:51:44 dhankins Exp $";
+static const char rcsid[] = "$Id: res_mkupdate.c,v 1.7.2.3 2004/06/10 17:59:43 dhankins Exp $";
 #endif /* not lint */
 
 #include <sys/types.h>
@@ -50,6 +50,7 @@ static const char rcsid[] = "$Id: res_mkupdate.c,v 1.14 2008/11/03 21:51:44 dhan
 #include "arpa/nameser.h"
 
 /* Options.  Leave them on. */
+#define DEBUG
 #define MAXPORT 1024
 
 static int getnum_str(const u_char **, const u_char *);
@@ -101,14 +102,13 @@ res_nmkupdate(res_state statp,
 	int n, i, soanum, multiline;
 	ns_updrec *rrecp;
 	struct in_addr ina;
-	struct in6_addr in6a;
         char buf2[MAXDNAME];
 	u_char buf3[MAXDNAME];
 	int section, numrrs = 0, counts[ns_s_max];
 	u_int16_t rtype, rclass;
 	u_int32_t n1, rttl;
 	u_char *dnptrs[20], **dpp, **lastdnptr;
-	unsigned certlen;
+	unsigned siglen, certlen;
 	int keylen;
 	unsigned buflen = *blp;
 	u_char *buf = (unsigned char *)bp;
@@ -235,16 +235,6 @@ res_nmkupdate(res_state statp,
 			n1 = ntohl(ina.s_addr);
 			ShrinkBuffer(INT32SZ);
 			PUTLONG(n1, cp);
-			break;
-		case T_AAAA:
-			if (!getword_str(buf2, sizeof buf2, &startp, endp))
-				return (-1);
-			if (inet_pton(AF_INET6, buf2, &in6a) <= 0)
-				return (-1);
-			n = sizeof(struct in6_addr);
-			memcpy(cp, &in6a, n);
-			cp += n;
-			ShrinkBuffer(n);
 			break;
 		case T_CNAME:
 		case T_MB:
@@ -482,7 +472,6 @@ res_nmkupdate(res_state statp,
 		    {
 			int sig_type, success, dateerror;
 			u_int32_t exptime, timesigned;
-			unsigned siglen;
 
 			/* type */
 			if ((n = getword_str(buf2, sizeof buf2,

@@ -3,7 +3,7 @@
    Parser for dhcpd config file... */
 
 /*
- * Copyright (c) 2004-2008 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2007 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1995-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -32,13 +32,15 @@
  * ``http://www.nominum.com''.
  */
 
+#ifndef lint
+static char copyright[] =
+"$Id: confpars.c,v 1.143.2.36 2007/05/03 21:13:52 each Exp $ Copyright (c) 2004-2006 Internet Systems Consortium.  All rights reserved.\n";
+#endif /* not lint */
+
 #include "dhcpd.h"
 
+static TIME parsed_time;
 static unsigned char global_host_once = 1;
-static unsigned char dhcpv6_class_once = 1;
-
-static int parse_binding_value(struct parse *cfile,
-				struct binding_value *value);
 
 #if defined (TRACING)
 trace_type_t *trace_readconf_type;
@@ -158,13 +160,10 @@ isc_result_t read_conf_file (const char *filename, struct group *group,
 	/* If we're recording, write out the filename and file contents. */
 	if (trace_record ())
 		trace_write_packet (ttype, ulen + tflen + 1, dbuf, MDL);
-	status = new_parse(&cfile, -1, fbuf, ulen, filename, 0); /* XXX */
+	new_parse (&cfile, -1, fbuf, ulen, filename, 0); /* XXX */
 #else
-	status = new_parse(&cfile, file, NULL, 0, filename, 0);
+	new_parse (&cfile, file, (char *)0, 0, filename, 0);
 #endif
-	if (status != ISC_R_SUCCESS || cfile == NULL)
-		return status;
-
 	if (leasep)
 		status = lease_file_subparse (cfile);
 	else
@@ -185,7 +184,6 @@ void trace_conf_input (trace_type_t *ttype, unsigned len, char *data)
 	struct parse *cfile = (struct parse *)0;
 	static int postconf_initialized;
 	static int leaseconf_initialized;
-	isc_result_t status;
 	
 	/* Do what's done above, except that we don't have to read in the
 	   data, because it's already been read for us. */
@@ -196,15 +194,12 @@ void trace_conf_input (trace_type_t *ttype, unsigned len, char *data)
 	/* If we're recording, write out the filename and file contents. */
 	if (trace_record ())
 		trace_write_packet (ttype, len, data, MDL);
-
-	status = new_parse(&cfile, -1, fbuf, flen, data, 0);
-	if (status == ISC_R_SUCCESS || cfile != NULL) {
-		if (ttype == trace_readleases_type)
-			lease_file_subparse (cfile);
-		else
-			conf_file_subparse (cfile, root_group, ROOT_GROUP);
-		end_parse (&cfile);
-	}
+	new_parse (&cfile, -1, fbuf, flen, data, 0);
+	if (ttype == trace_readleases_type)
+		lease_file_subparse (cfile);
+	else
+		conf_file_subparse (cfile, root_group, ROOT_GROUP);
+	end_parse (&cfile);
 
 	/* Postconfiguration needs to be done after the config file
 	   has been loaded. */
@@ -250,7 +245,7 @@ isc_result_t conf_file_subparse (struct parse *cfile, struct group *group,
 }
 
 /* lease-file :== lease-declarations END_OF_FILE
-   lease-statements :== <nil>
+   lease-statments :== <nil>
    		     | lease-declaration
 		     | lease-declarations lease-declaration */
 
@@ -272,18 +267,6 @@ isc_result_t lease_file_subparse (struct parse *cfile)
 			} else
 				parse_warn (cfile,
 					    "possibly corrupt lease file");
-		} else if (token == IA_NA) {
-			parse_ia_na_declaration(cfile);
-		} else if (token == IA_TA) {
-			parse_ia_ta_declaration(cfile);
-		} else if (token == IA_PD) {
-			parse_ia_pd_declaration(cfile);
-		} else if (token == CLASS) {
-			parse_class_declaration(0, cfile, root_group,
-						CLASS_TYPE_CLASS);
-		} else if (token == SUBCLASS) {
-			parse_class_declaration(0, cfile, root_group,
-						CLASS_TYPE_SUBCLASS);
 		} else if (token == HOST) {
 			parse_host_declaration (cfile, root_group);
 		} else if (token == GROUP) {
@@ -293,10 +276,6 @@ isc_result_t lease_file_subparse (struct parse *cfile)
 			parse_failover_state_declaration
 				(cfile, (dhcp_failover_state_t *)0);
 #endif
-#ifdef DHCPv6
-		} else if (token == SERVER_DUID) {
-			parse_server_duid(cfile);
-#endif /* DHCPv6 */
 		} else {
 			log_error ("Corrupt lease file - possible data loss!");
 			skip_to_semi (cfile);
@@ -310,7 +289,8 @@ isc_result_t lease_file_subparse (struct parse *cfile)
 
 /* statement :== parameter | declaration
 
-   parameter :== DEFAULT_LEASE_TIME lease_time
+   parameter :== timestamp
+   	       | DEFAULT_LEASE_TIME lease_time
 	       | MAX_LEASE_TIME lease_time
 	       | DYNAMIC_BOOTP_LEASE_CUTOFF date
 	       | DYNAMIC_BOOTP_LEASE_LENGTH lease_time
@@ -349,15 +329,17 @@ int parse_statement (cfile, group, type, host_decl, declaration)
 	enum dhcp_token token;
 	const char *val;
 	struct shared_network *share;
-	char *n;
+	char *t, *n;
+	struct expression *expr;
+	struct data_string data;
 	struct hardware hardware;
 	struct executable_statement *et, *ep;
-	struct option *option = NULL;
+	struct option *option;
 	struct option_cache *cache;
 	int lose;
+	struct data_string key_id;
 	int known;
 	isc_result_t status;
-	unsigned code;
 
 	token = peek_token (&val, (unsigned *)0, cfile);
 
@@ -406,6 +388,11 @@ int parse_statement (cfile, group, type, host_decl, declaration)
 		}
 		return 1;
 
+	      case TIMESTAMP:
+		next_token (&val, (unsigned *)0, cfile);
+		parsed_time = parse_timestamp (cfile);
+		break;
+
 	      case SHARED_NETWORK:
 		next_token (&val, (unsigned *)0, cfile);
 		if (type == SHARED_NET_DECL ||
@@ -422,7 +409,6 @@ int parse_statement (cfile, group, type, host_decl, declaration)
 		return 1;
 
 	      case SUBNET:
-	      case SUBNET6:
 		next_token (&val, (unsigned *)0, cfile);
 		if (type == HOST_DECL || type == SUBNET_DECL ||
 		    type == CLASS_DECL) {
@@ -433,26 +419,16 @@ int parse_statement (cfile, group, type, host_decl, declaration)
 		}
 
 		/* If we're in a subnet declaration, just do the parse. */
-		if (group->shared_network != NULL) {
-			if (token == SUBNET) {
-				parse_subnet_declaration(cfile,
-							 group->shared_network);
-			} else {
-				parse_subnet6_declaration(cfile,
-							 group->shared_network);
-			}
+		if (group -> shared_network) {
+			parse_subnet_declaration (cfile,
+						  group -> shared_network);
 			break;
 		}
 
-		/*
-		 * Otherwise, cons up a fake shared network structure
-		 * and populate it with the lone subnet...because the
-		 * intention most likely is to refer to the entire link
-		 * by shorthand, any configuration inside the subnet is
-		 * actually placed in the shared-network's group.
-		 */
+		/* Otherwise, cons up a fake shared network structure
+		   and populate it with the lone subnet... */
 
-		share = NULL;
+		share = (struct shared_network *)0;
 		status = shared_network_allocate (&share, MDL);
 		if (status != ISC_R_SUCCESS)
 			log_fatal ("Can't allocate shared subnet: %s",
@@ -462,46 +438,26 @@ int parse_statement (cfile, group, type, host_decl, declaration)
 		shared_network_reference (&share -> group -> shared_network,
 					  share, MDL);
 
-		/*
-		 * This is an implicit shared network, not explicit in
-		 * the config.
-		 */
-		share->flags |= SHARED_IMPLICIT;
-
-		if (token == SUBNET) {
-			parse_subnet_declaration(cfile, share);
-		} else {
-			parse_subnet6_declaration(cfile, share);
-		}
+		parse_subnet_declaration (cfile, share);
 
 		/* share -> subnets is the subnet we just parsed. */
-		if (share->subnets) {
-			interface_reference(&share->interface,
-					    share->subnets->interface,
-					    MDL);
+		if (share -> subnets) {
+			interface_reference (&share -> interface,
+					     share -> subnets -> interface,
+					     MDL);
 
 			/* Make the shared network name from network number. */
-			if (token == SUBNET) {
-				n = piaddrmask(&share->subnets->net,
-					       &share->subnets->netmask);
-			} else {
-				n = piaddrcidr(&share->subnets->net,
-					       share->subnets->prefix_len);
-			}
-
-			share->name = strdup(n);
-
-			if (share->name == NULL)
-				log_fatal("Out of memory allocating default "
-					  "shared network name (\"%s\").", n);
+			n = piaddrmask (share -> subnets -> net,
+					share -> subnets -> netmask, MDL);
+			share -> name = n;
 
 			/* Copy the authoritative parameter from the subnet,
 			   since there is no opportunity to declare it here. */
-			share->group->authoritative =
-				share->subnets->group->authoritative;
-			enter_shared_network(share);
+			share -> group -> authoritative =
+				share -> subnets -> group -> authoritative;
+			enter_shared_network (share);
 		}
-		shared_network_dereference(&share, MDL);
+		shared_network_dereference (&share, MDL);
 		return 1;
 
 	      case VENDOR_CLASS:
@@ -512,7 +468,7 @@ int parse_statement (cfile, group, type, host_decl, declaration)
 			skip_to_semi (cfile);
 			break;
 		}
-		parse_class_declaration(NULL, cfile, group, CLASS_TYPE_VENDOR);
+		parse_class_declaration ((struct class **)0, cfile, group, 0);
 		return 1;
 
 	      case USER_CLASS:
@@ -523,7 +479,7 @@ int parse_statement (cfile, group, type, host_decl, declaration)
 			skip_to_semi (cfile);
 			break;
 		}
-		parse_class_declaration(NULL, cfile, group, CLASS_TYPE_USER);
+		parse_class_declaration ((struct class **)0, cfile, group, 1);
 		return 1;
 
 	      case CLASS:
@@ -534,7 +490,7 @@ int parse_statement (cfile, group, type, host_decl, declaration)
 			skip_to_semi (cfile);
 			break;
 		}
-		parse_class_declaration(NULL, cfile, group, CLASS_TYPE_CLASS);
+		parse_class_declaration ((struct class **)0, cfile, group, 2);
 		return 1;
 
 	      case SUBCLASS:
@@ -545,22 +501,11 @@ int parse_statement (cfile, group, type, host_decl, declaration)
 			skip_to_semi (cfile);
 			break;
 		}
-		parse_class_declaration(NULL, cfile, group,
-					CLASS_TYPE_SUBCLASS);
+		parse_class_declaration ((struct class **)0, cfile, group, 3);
 		return 1;
 
 	      case HARDWARE:
 		next_token (&val, (unsigned *)0, cfile);
-#ifdef DHCPv6
-		if (local_family == AF_INET6) {
-			parse_warn(cfile, "You can not use a hardware "
-			                  "parameter for DHCPv6 hosts. "
-					  "Use the host-identifier parameter "
-					  "instead.");
-			skip_to_semi(cfile);
-			break;
-		}
-#endif /* DHCPv6 */
 		memset (&hardware, 0, sizeof hardware);
 		if (host_decl && memcmp(&hardware, &(host_decl->interface),
 					sizeof(hardware)) != 0) {
@@ -578,37 +523,36 @@ int parse_statement (cfile, group, type, host_decl, declaration)
 		break;
 
 	      case FIXED_ADDR:
-	      case FIXED_ADDR6:
-		next_token(&val, NULL, cfile);
-		cache = NULL;
-		if (parse_fixed_addr_param(&cache, cfile, token)) {
+		next_token (&val, (unsigned *)0, cfile);
+		cache = (struct option_cache *)0;
+		if (parse_fixed_addr_param (&cache, cfile)) {
 			if (host_decl) {
-				if (host_decl->fixed_addr) {
-					option_cache_dereference(&cache, MDL);
-					parse_warn(cfile,
-						   "Only one fixed address "
-						   "declaration per host.");
+				if (host_decl -> fixed_addr) {
+					option_cache_dereference (&cache, MDL);
+					parse_warn (cfile,
+						    "Only one fixed address%s",
+						    " declaration per host.");
 				} else {
-					host_decl->fixed_addr = cache;
+					host_decl -> fixed_addr = cache;
 				}
 			} else {
-				parse_warn(cfile,
-					   "fixed-address parameter not "
-					   "allowed here.");
-				option_cache_dereference(&cache, MDL);
+				parse_warn (cfile,
+					    "fixed-address parameter not %s",
+					    "allowed here.");
+				option_cache_dereference (&cache, MDL);
 			}
 		}
 		break;
 
 	      case POOL:
 		next_token (&val, (unsigned *)0, cfile);
-		if (type == POOL_DECL) {
-			parse_warn (cfile, "pool declared within pool.");
-			skip_to_semi(cfile);
-		} else if (type != SUBNET_DECL && type != SHARED_NET_DECL) {
+		if (type != SUBNET_DECL && type != SHARED_NET_DECL) {
 			parse_warn (cfile, "pool declared outside of network");
 			skip_to_semi(cfile);
-		} else 
+		} else if (type == POOL_DECL) {
+			parse_warn (cfile, "pool declared within pool.");
+			skip_to_semi(cfile);
+		} else
 			parse_pool_statement (cfile, group, type);
 
 		return declaration;
@@ -624,43 +568,6 @@ int parse_statement (cfile, group, type, host_decl, declaration)
 		parse_address_range (cfile, group, type, (struct pool *)0,
 				     (struct lease **)0);
 		return declaration;
-
-#ifdef DHCPv6
-	      case RANGE6:
-		next_token(NULL, NULL, cfile);
-	        if ((type != SUBNET_DECL) || (group->subnet == NULL)) {
-			parse_warn (cfile,
-				    "range6 declaration not allowed here.");
-			skip_to_semi(cfile);
-			return declaration;
-		}
-	      	parse_address_range6(cfile, group);
-		return declaration;
-
-	      case PREFIX6:
-		next_token(NULL, NULL, cfile);
-		if ((type != SUBNET_DECL) || (group->subnet == NULL)) {
-			parse_warn (cfile,
-				    "prefix6 declaration not allowed here.");
-			skip_to_semi(cfile);
-			return declaration;
-		}
-	      	parse_prefix6(cfile, group);
-		return declaration;
-
-	      case FIXED_PREFIX6:
-		next_token(&val, NULL, cfile);
-		if (!host_decl) {
-			parse_warn (cfile,
-				    "fixed-prefix6 declaration not "
-				    "allowed here.");
-			skip_to_semi(cfile);
-			break;
-		}
-		parse_fixed_prefix6(cfile, host_decl);
-		break;
-
-#endif /* DHCPv6 */
 
 	      case TOKEN_NOT:
 		token = next_token (&val, (unsigned *)0, cfile);
@@ -687,11 +594,7 @@ int parse_statement (cfile, group, type, host_decl, declaration)
 		/* "server-identifier" is a special hack, equivalent to
 		   "option dhcp-server-identifier". */
 	      case SERVER_IDENTIFIER:
-		code = DHO_DHCP_SERVER_IDENTIFIER;
-		if (!option_code_hash_lookup(&option, dhcp_universe.code_hash,
-					     &code, 0, MDL))
-			log_fatal("Server identifier not in hash (%s:%d).",
-				  MDL);
+		option = dhcp_universe.options [DHO_DHCP_SERVER_IDENTIFIER];
 		token = next_token (&val, (unsigned *)0, cfile);
 		goto finish_option;
 
@@ -711,8 +614,8 @@ int parse_statement (cfile, group, type, host_decl, declaration)
 		}
 
 		known = 0;
-		status = parse_option_name(cfile, 1, &known, &option);
-		if (status == ISC_R_SUCCESS) {
+		option = parse_option_name (cfile, 1, &known);
+		if (option) {
 			token = peek_token (&val, (unsigned *)0, cfile);
 			if (token == CODE) {
 				if (type != ROOT_GROUP) {
@@ -720,12 +623,13 @@ int parse_statement (cfile, group, type, host_decl, declaration)
 						    "option definitions%s",
 						    " may not be scoped.");
 					skip_to_semi (cfile);
-					option_dereference(&option, MDL);
+					free_option (option, MDL);
 					break;
 				}
 				next_token (&val, (unsigned *)0, cfile);
-				parse_option_code_definition(cfile, option);
-				option_dereference(&option, MDL);
+				if (!parse_option_code_definition (cfile,
+								   option))
+					free_option (option, MDL);
 				return declaration;
 			}
 
@@ -736,28 +640,8 @@ int parse_statement (cfile, group, type, host_decl, declaration)
 					    option -> universe -> name,
 					    option -> name);
 				skip_to_semi (cfile);
-				option_dereference(&option, MDL);
+				free_option (option, MDL);
 				return declaration;
-			}
-
-			/*
-			 * If the configuration attempts to define on option
-			 * that we ignore, then warn about it now.
-			 *
-			 * In DHCPv4 we do not use dhcp-renewal-time or
-			 * dhcp-rebinding-time, but we use these in DHCPv6.
-			 *
-			 * XXX: We may want to include a "blacklist" of 
-			 *      options we ignore in the future, as a table.
-			 */
-			if ((option->code == DHO_DHCP_LEASE_TIME) ||
-			    ((local_family != AF_INET6) && 
-			     ((option->code == DHO_DHCP_RENEWAL_TIME) ||
-			      (option->code == DHO_DHCP_REBINDING_TIME))))
-			{
-				log_error("WARNING: server ignoring option %s "
-				          "in configuration file.",
-                                          option->name);
 			}
 
 		      finish_option:
@@ -766,7 +650,6 @@ int parse_statement (cfile, group, type, host_decl, declaration)
 				(&et, cfile, 1, option,
 				 supersede_option_statement))
 				return declaration;
-			option_dereference(&option, MDL);
 			goto insert_statement;
 		} else
 			return declaration;
@@ -789,12 +672,6 @@ int parse_statement (cfile, group, type, host_decl, declaration)
 		skip_to_semi (cfile);
 #endif
 		break;
-			
-#ifdef DHCPv6 
-	      case SERVER_DUID:
-		parse_server_duid_conf(cfile);
-		break;
-#endif /* DHCPv6 */
 
 	      default:
 		et = (struct executable_statement *)0;
@@ -996,22 +873,6 @@ void parse_failover_peer (cfile, group, type)
 			cp -> port = atoi (val);
 			break;
 
-		      case MAX_LEASE_MISBALANCE:
-			tp = &peer->max_lease_misbalance;
-			goto parse_idle;
-
-		      case MAX_LEASE_OWNERSHIP:
-			tp = &peer->max_lease_ownership;
-			goto parse_idle;
-
-		      case MAX_BALANCE:
-			tp = &peer->max_balance;
-			goto parse_idle;
-
-		      case MIN_BALANCE:
-			tp = &peer->min_balance;
-			goto parse_idle;
-
 		      case MAX_RESPONSE_DELAY:
 			tp = &cp -> max_response_delay;
 		      parse_idle:
@@ -1068,6 +929,7 @@ void parse_failover_peer (cfile, group, type)
 					    "load balance settings.");
 			if (token != NUMBER) {
 				parse_warn (cfile, "expecting number");
+			      badsplit:
 				skip_to_rbrace (cfile, 1);
 				dhcp_failover_state_dereference (&peer, MDL);
 				return;
@@ -1146,22 +1008,16 @@ void parse_failover_peer (cfile, group, type)
 			    "primary failover server must have mclt.");
 	    }
 	}
+	if (!peer -> me.max_flying_updates) {
+		peer -> me.max_flying_updates = 100;
+	}
+	if (!peer -> me.max_response_delay) {
+		peer -> me.max_response_delay = 60;
+	}
 
-	if (!peer->max_lease_misbalance)
-		peer->max_lease_misbalance = DEFAULT_MAX_LEASE_MISBALANCE;
-	if (!peer->max_lease_ownership)
-		peer->max_lease_ownership = DEFAULT_MAX_LEASE_OWNERSHIP;
-	if (!peer->max_balance)
-		peer->max_balance = DEFAULT_MAX_BALANCE_TIME;
-	if (!peer->min_balance)
-		peer->min_balance = DEFAULT_MIN_BALANCE_TIME;
-	if (!peer->me.max_flying_updates)
-		peer->me.max_flying_updates = DEFAULT_MAX_FLYING_UPDATES;
-	if (!peer->me.max_response_delay)
-		peer->me.max_response_delay = DEFAULT_MAX_RESPONSE_DELAY;
-
-	if (type == SHARED_NET_DECL)
-		group->shared_network->failover_peer = peer;
+	if (type == SHARED_NET_DECL) {
+		group -> shared_network -> failover_peer = peer;
+	}
 
 	/* Set the initial state. */
 	if (peer -> i_am == primary) {
@@ -1421,8 +1277,6 @@ void parse_pool_statement (cfile, group, type)
 	int declaration = 0;
 	isc_result_t status;
 	struct lease *lpchain = (struct lease *)0, *lp;
-	TIME t;
-	int is_allow = 0;
 
 	pool = (struct pool *)0;
 	status = pool_allocate (&pool, MDL);
@@ -1464,7 +1318,7 @@ void parse_pool_statement (cfile, group, type)
 	do {
 		token = peek_token (&val, (unsigned *)0, cfile);
 		switch (token) {
-		      case TOKEN_NO:
+		      case NO:
 			next_token (&val, (unsigned *)0, cfile);
 			token = next_token (&val, (unsigned *)0, cfile);
 			if (token != FAILOVER ||
@@ -1519,8 +1373,6 @@ void parse_pool_statement (cfile, group, type)
 			break;
 		      case ALLOW:
 			permit_head = &pool -> permit_list;
-			/* remember the clause which leads to get_permit */
-			is_allow = 1;
 		      get_permit:
 			permit = new_permit (MDL);
 			if (!permit)
@@ -1603,24 +1455,6 @@ void parse_pool_statement (cfile, group, type)
 						    "no such class: %s", val);
 				break;
 
-			      case AFTER:
-				if (pool->valid_from || pool->valid_until) {
-					parse_warn(cfile,
-						    "duplicate \"after\" clause.");
-					skip_to_semi(cfile);
-					free_permit(permit, MDL);
-					continue;
-				}
-				t = parse_date_core(cfile);
-				permit->type = permit_after;
-				permit->after = t;
-				if (is_allow) {
-					pool->valid_from = t;
-				} else {
-					pool->valid_until = t;
-				}
-				break;
-
 			      default:
 				parse_warn (cfile, "expecting permit type.");
 				skip_to_semi (cfile);
@@ -1634,23 +1468,12 @@ void parse_pool_statement (cfile, group, type)
 
 		      case DENY:
 			permit_head = &pool -> prohibit_list;
-			/* remember the clause which leads to get_permit */
-			is_allow = 0; 
 			goto get_permit;
 			
 		      case RBRACE:
 			next_token (&val, (unsigned *)0, cfile);
 			done = 1;
 			break;
-
-		      case END_OF_FILE:
-			/*
-			 * We can get to END_OF_FILE if, for instance,
-			 * the parse_statement() reads all available tokens
-			 * and leaves us at the end.
-			 */
-			parse_warn(cfile, "unexpected end of file");
-			goto cleanup;
 
 		      default:
 			declaration = parse_statement (cfile, pool -> group,
@@ -1661,8 +1484,64 @@ void parse_pool_statement (cfile, group, type)
 		}
 	} while (!done);
 
+#if defined (FAILOVER_PROTOCOL)
+	/* We can't do failover on a pool that supports dynamic bootp,
+	   because BOOTP doesn't support leases, and failover absolutely
+	   depends on lease timing. */
+	if (pool -> failover_peer) {
+		/* This search order matches the search orders later in
+		 * execution - deny first, if not denied, check permit
+		 * list.  A dynamic bootp client may be known or unknown,
+		 * it may belong to a member of a class, but it definitely
+		 * will not be authenticated since that requires DHCP
+		 * to work.  So a dynamic bootp client is definitely not
+		 * an authenticated client, and we can't say for sure about
+		 * anything else.
+		 *
+		 * So we nag the user.
+		 */
+		for (permit = pool -> prohibit_list; permit;
+		     permit = permit -> next) {
+			if (permit -> type == permit_dynamic_bootp_clients ||
+			    permit -> type == permit_unauthenticated_clients ||
+			    permit -> type == permit_all_clients)
+				break;
+		}
+		if (!permit) {
+			permit = pool -> permit_list;
+			do {
+				if (!permit ||
+				    permit -> type !=
+					permit_authenticated_clients) {
+					parse_warn (cfile,
+					  "pools with failover peers %s",
+					  "may not permit dynamic bootp.");
+					log_error ("Either write a \"%s\" %s",
+					  "no failover",
+					  "statement and use disjoint");
+					log_error ("pools, or%s (%s) %s",
+					  " don't permit dynamic bootp",
+					  "\"deny dynamic bootp clients;\"",
+					  "in this pool.");
+					log_error ("This is a protocol,%s %s",
+					   " limitation, not an ISC DHCP",
+					   "limitation, so");
+					log_error ("please don't request an %s",
+					   "enhancement or ask why this is.");
+
+					break;
+				}
+
+				permit = permit -> next;
+			} while (permit);
+		}
+	}
+#endif /* FAILOVER_PROTOCOL */
+
 	/* See if there's already a pool into which we can merge this one. */
 	for (pp = pool -> shared_network -> pools; pp; pp = pp -> next) {
+		struct lease *l;
+
 		if (pp -> group -> statements != pool -> group -> statements)
 			continue;
 #if defined (FAILOVER_PROTOCOL)
@@ -1705,7 +1584,6 @@ void parse_pool_statement (cfile, group, type)
 		log_error ("one range statement.");
 	}
 
-cleanup:
 	/* Dereference the lease chain. */
 	lp = (struct lease *)0;
 	while (lpchain) {
@@ -1779,9 +1657,6 @@ void parse_host_declaration (cfile, group)
 	int dynamicp = 0;
 	int deleted = 0;
 	isc_result_t status;
-	int known;
-	struct option *option;
-	struct expression *expr = NULL;
 
 	name = parse_host_name (cfile);
 	if (!name) {
@@ -1914,60 +1789,9 @@ void parse_host_declaration (cfile, group)
 				break;
 			continue;
 		}
-
-		if (token == HOST_IDENTIFIER) {
-			if (host->host_id_option != NULL) {
-				parse_warn(cfile,
-					   "only one host-identifier allowed "
-					   "per host");
-				skip_to_rbrace(cfile, 1);
-				break;
-			}
-	      		next_token(&val, NULL, cfile);
-			token = next_token(&val, NULL, cfile);
-			if (token != OPTION) {
-				parse_warn(cfile, 
-					   "host-identifier must be an option");
-				skip_to_rbrace(cfile, 1);
-				break;
-			}
-			known = 0;
-			option = NULL;
-			status = parse_option_name(cfile, 1, &known, &option);
-			if ((status != ISC_R_SUCCESS) || (option == NULL)) {
-				break;
-			}
-			if (!known) {
-				parse_warn(cfile, "unknown option %s.%s",
-					   option->universe->name, 
-					   option->name);
-				skip_to_rbrace(cfile, 1);
-				break;
-			}
-
-                        if (! parse_option_data(&expr, cfile, 1, option)) {
-		        	skip_to_rbrace(cfile, 1);
-		        	option_dereference(&option, MDL);
-		        	break;
-                        }
-                        
-			if (!parse_semi(cfile)) {
-				skip_to_rbrace(cfile, 1);
-				expression_dereference(&expr, MDL);
-				option_dereference(&option, MDL);
-				break;
-			}
-
-			option_reference(&host->host_id_option, option, MDL);
-			option_dereference(&option, MDL);
-			data_string_copy(&host->host_id, 
-					 &expr->data.const_data, MDL);
-			expression_dereference(&expr, MDL);
-			continue;
-		}
-
-		declaration = parse_statement(cfile, host->group, HOST_DECL,
-                                              host, declaration);
+		declaration = parse_statement (cfile, host -> group,
+					       HOST_DECL, host,
+					       declaration);
 	} while (1);
 
 	if (deleted) {
@@ -2028,17 +1852,9 @@ int parse_class_declaration (cp, cfile, group, type)
 	char *name;
 	const char *tname;
 	struct executable_statement *stmt = (struct executable_statement *)0;
+	struct expression *expr;
 	int new = 1;
 	isc_result_t status = ISC_R_FAILURE;
-	int matchedonce = 0;
-	int submatchedonce = 0;
-	unsigned code;
-
-	if (dhcpv6_class_once && local_family == AF_INET6) {
-		dhcpv6_class_once = 0;
-		log_error("WARNING: class declarations are not supported "
-			  "for DHCPv6.");
-	}
 
 	token = next_token (&val, (unsigned *)0, cfile);
 	if (token != STRING) {
@@ -2050,17 +1866,18 @@ int parse_class_declaration (cp, cfile, group, type)
 	/* See if there's already a class with the specified name. */
 	find_class (&pc, val, MDL);
 
-	/* If it is a class, we're updating it.  If it's any of the other
-	 * types (subclass, vendor or user class), the named class is a
-	 * reference to the parent class so its mandatory.
-	 */
-	if (pc && (type == CLASS_TYPE_CLASS)) {
-		class_reference(&class, pc, MDL);
+	/* If this isn't a subclass, we're updating an existing class. */
+	if (pc && type != 0 && type != 1 && type != 3) {
+		class_reference (&class, pc, MDL);
 		new = 0;
-		class_dereference(&pc, MDL);
-	} else if (!pc && (type != CLASS_TYPE_CLASS)) {
-		parse_warn(cfile, "no class named %s", val);
-		skip_to_semi(cfile);
+		class_dereference (&pc, MDL);
+	}
+
+	/* If this _is_ a subclass, there _must_ be a class with the
+	   same name. */
+	if (!pc && (type == 0 || type == 1 || type == 3)) {
+		parse_warn (cfile, "no class named %s", val);
+		skip_to_semi (cfile);
 		return 0;
 	}
 
@@ -2071,7 +1888,7 @@ int parse_class_declaration (cp, cfile, group, type)
 	   are turned into subclasses of the implicit classes, and the
 	   submatch expression of the implicit classes extracts the contents of
 	   the vendor class or user class. */
-	if ((type == CLASS_TYPE_VENDOR) || (type == CLASS_TYPE_USER)) {
+	if (type == 0 || type == 1) {
 		data.len = strlen (val);
 		data.buffer = (struct buffer *)0;
 		if (!buffer_allocate (&data.buffer, data.len + 1, MDL))
@@ -2080,7 +1897,7 @@ int parse_class_declaration (cp, cfile, group, type)
 		data.terminated = 1;
 
 		tname = type ? "implicit-vendor-class" : "implicit-user-class";
-	} else if (type == CLASS_TYPE_CLASS) {
+	} else if (type == 2) {
 		tname = val;
 	} else {
 		tname = (const char *)0;
@@ -2095,7 +1912,7 @@ int parse_class_declaration (cp, cfile, group, type)
 		name = (char *)0;
 
 	/* If this is a straight subclass, parse the hash string. */
-	if (type == CLASS_TYPE_SUBCLASS) {
+	if (type == 3) {
 		token = peek_token (&val, (unsigned *)0, cfile);
 		if (token == STRING) {
 			token = next_token (&val, &data.len, cfile);
@@ -2114,8 +1931,7 @@ int parse_class_declaration (cp, cfile, group, type)
 		} else if (token == NUMBER_OR_NAME || token == NUMBER) {
 			memset (&data, 0, sizeof data);
 			if (!parse_cshl (&data, cfile)) {
-				if (pc)
-					class_dereference (&pc, MDL);
+				class_dereference (&pc, MDL);
 				return 0;
 			}
 		} else {
@@ -2128,7 +1944,7 @@ int parse_class_declaration (cp, cfile, group, type)
 
 	/* See if there's already a class in the hash table matching the
 	   hash data. */
-	if (type != CLASS_TYPE_CLASS)
+	if (type == 0 || type == 1 || type == 3)
 		class_hash_lookup (&class, pc -> hash,
 				   (const char *)data.data, data.len, MDL);
 
@@ -2152,15 +1968,13 @@ int parse_class_declaration (cp, cfile, group, type)
 			}
 			data_string_copy (&class -> hash_string, &data, MDL);
 			if (!pc -> hash &&
-			    !class_new_hash (&pc->hash, SCLASS_HASH_SIZE, MDL))
+			    !class_new_hash (&pc -> hash, 0, MDL))
 				log_fatal ("No memory for subclass hash.");
 			class_hash_add (pc -> hash,
 					(const char *)class -> hash_string.data,
 					class -> hash_string.len,
 					(void *)class, MDL);
 		} else {
-			if (class->group)
-				group_dereference(&class->group, MDL);
 			if (!clone_group (&class -> group, group, MDL))
 				log_fatal ("no memory to clone class group.");
 		}
@@ -2168,7 +1982,7 @@ int parse_class_declaration (cp, cfile, group, type)
 		/* If this is an implicit vendor or user class, add a
 		   statement that causes the vendor or user class ID to
 		   be sent back in the reply. */
-		if (type == CLASS_TYPE_VENDOR || type == CLASS_TYPE_USER) {
+		if (type == 0 || type == 1) {
 			stmt = (struct executable_statement *)0;
 			if (!executable_statement_allocate (&stmt, MDL))
 				log_fatal ("no memory for class statement.");
@@ -2176,25 +1990,21 @@ int parse_class_declaration (cp, cfile, group, type)
 			if (option_cache_allocate (&stmt -> data.option,
 						   MDL)) {
 				stmt -> data.option -> data = data;
-				code = (type == CLASS_TYPE_VENDOR)
+				stmt -> data.option -> option =
+					dhcp_universe.options
+					[type
 					? DHO_VENDOR_CLASS_IDENTIFIER
-					: DHO_USER_CLASS;
-				option_code_hash_lookup(
-						&stmt->data.option->option,
-							dhcp_universe.code_hash,
-							&code, 0, MDL);
+					: DHO_USER_CLASS];
 			}
 			class -> statements = stmt;
 		}
 
 		/* Save the name, if there is one. */
-		if (class->name != NULL)
-			dfree(class->name, MDL);
-		class->name = name;
+		class -> name = name;
 	}
 
-	if (type != CLASS_TYPE_CLASS)
-		data_string_forget(&data, MDL);
+	if (type == 0 || type == 1 || type == 3)
+		data_string_forget (&data, MDL);
 
 	/* Spawned classes don't have to have their own settings. */
 	if (class -> superclass) {
@@ -2230,18 +2040,6 @@ int parse_class_declaration (cp, cfile, group, type)
 			token = next_token (&val, (unsigned *)0, cfile);
 			parse_warn (cfile, "unexpected end of file");
 			break;
-		} else if (token == DYNAMIC) {
-			class->flags |= CLASS_DECL_DYNAMIC;
-			token = next_token (&val, (unsigned *)0, cfile);
-			if (!parse_semi (cfile))
-				break;
-			continue;
-		} else if (token == TOKEN_DELETED) {
-			class->flags |= CLASS_DECL_DELETED;
-			token = next_token (&val, (unsigned *)0, cfile);
-			if (!parse_semi (cfile))
-				break;
-			continue;
 		} else if (token == MATCH) {
 			if (pc) {
 				parse_warn (cfile,
@@ -2253,17 +2051,13 @@ int parse_class_declaration (cp, cfile, group, type)
 			token = peek_token (&val, (unsigned *)0, cfile);
 			if (token != IF)
 				goto submatch;
-			token = next_token (&val, (unsigned *)0, cfile);
-			if (matchedonce) {
-				parse_warn(cfile, "A class may only have "
-						  "one 'match if' clause.");
-				skip_to_semi(cfile);
+			if (class -> expr) {
+				parse_warn (cfile, "can't override match.");
+				skip_to_semi (cfile);
 				break;
 			}
-			matchedonce = 1;
-			if (class->expr)
-				expression_dereference(&class->expr, MDL);
-			if (!parse_boolean_expression (&class->expr, cfile,
+			token = next_token (&val, (unsigned *)0, cfile);
+			if (!parse_boolean_expression (&class -> expr, cfile,
 						       &lose)) {
 				if (!lose) {
 					parse_warn (cfile,
@@ -2278,13 +2072,13 @@ int parse_class_declaration (cp, cfile, group, type)
 				parse_semi (cfile);
 			}
 		} else if (token == SPAWN) {
-			token = next_token (&val, (unsigned *)0, cfile);
 			if (pc) {
 				parse_warn (cfile,
 					    "invalid spawn in subclass.");
 				skip_to_semi (cfile);
 				break;
 			}
+			token = next_token (&val, (unsigned *)0, cfile);
 			class -> spawning = 1;
 			token = next_token (&val, (unsigned *)0, cfile);
 			if (token != WITH) {
@@ -2294,16 +2088,13 @@ int parse_class_declaration (cp, cfile, group, type)
 				break;
 			}
 		      submatch:
-			if (submatchedonce) {
+			if (class -> submatch) {
 				parse_warn (cfile,
 					    "can't override existing %s.",
 					    "submatch/spawn");
 				skip_to_semi (cfile);
 				break;
 			}
-			submatchedonce = 1;
-			if (class->submatch)
-				expression_dereference(&class->submatch, MDL);
 			if (!parse_data_expression (&class -> submatch,
 						    cfile, &lose)) {
 				if (!lose) {
@@ -2335,8 +2126,6 @@ int parse_class_declaration (cp, cfile, group, type)
 				break;
 			}
 			class -> lease_limit = atoi (val);
-			if (class->billed_leases)
-				dfree(class->billed_leases, MDL);
 			class -> billed_leases =
 				dmalloc (class -> lease_limit *
 					 sizeof (struct lease *), MDL);
@@ -2354,22 +2143,7 @@ int parse_class_declaration (cp, cfile, group, type)
 						       declaration);
 		}
 	} while (1);
-
-	if (class->flags & CLASS_DECL_DELETED) {
-		if (type == CLASS_TYPE_CLASS) {
-			struct class *theclass = NULL;
-		
-			status = find_class(&theclass, class->name, MDL);
-			if (status == ISC_R_SUCCESS) {
-				delete_class(theclass, 0);
-				class_dereference(&theclass, MDL);
-			}
-		} else {
-			class_hash_delete(pc->hash,
-					  (char *)class->hash_string.data,
-					  class->hash_string.len, MDL);
-		}
-	} else if (type == CLASS_TYPE_CLASS && new) {
+	if (type == 2 && new) {
 		if (!collections -> classes)
 			class_reference (&collections -> classes, class, MDL);
 		else {
@@ -2380,8 +2154,7 @@ int parse_class_declaration (cp, cfile, group, type)
 			class_reference (&c -> nic, class, MDL);
 		}
 	}
-
-	if (cp)				/* should always be 0??? */
+	if (cp)
 		status = class_reference (cp, class, MDL);
 	class_dereference (&class, MDL);
 	if (pc)
@@ -2474,76 +2247,6 @@ void parse_shared_net_declaration (cfile, group)
 	shared_network_dereference (&share, MDL);
 }
 
-
-static int
-common_subnet_parsing(struct parse *cfile, 
-		      struct shared_network *share,
-		      struct subnet *subnet) {
-	enum dhcp_token token;
-	struct subnet *t, *u;
-	const char *val;
-	int declaration = 0;
-
-	enter_subnet(subnet);
-
-	if (!parse_lbrace(cfile)) {
-		subnet_dereference(&subnet, MDL);
-		return 0;
-	}
-
-	do {
-		token = peek_token(&val, NULL, cfile);
-		if (token == RBRACE) {
-			token = next_token(&val, NULL, cfile);
-			break;
-		} else if (token == END_OF_FILE) {
-			token = next_token(&val, NULL, cfile);
-			parse_warn (cfile, "unexpected end of file");
-			break;
-		} else if (token == INTERFACE) {
-			token = next_token(&val, NULL, cfile);
-			token = next_token(&val, NULL, cfile);
-			new_shared_network_interface(cfile, share, val);
-			if (!parse_semi(cfile))
-				break;
-			continue;
-		}
-		declaration = parse_statement(cfile, subnet->group,
-					      SUBNET_DECL,
-					      NULL,
-					      declaration);
-	} while (1);
-
-	/* Add the subnet to the list of subnets in this shared net. */
-	if (share->subnets == NULL) {
-		subnet_reference(&share->subnets, subnet, MDL);
-	} else {
-		u = NULL;
-		for (t = share->subnets; t->next_sibling; t = t->next_sibling) {
-			if (subnet_inner_than(subnet, t, 0)) {
-				subnet_reference(&subnet->next_sibling, t, MDL);
-				if (u) {
-					subnet_dereference(&u->next_sibling,
-							   MDL);
-					subnet_reference(&u->next_sibling,
-							 subnet, MDL);
-				} else {
-					subnet_dereference(&share->subnets,
-							   MDL);
-					subnet_reference(&share->subnets,
-							 subnet, MDL);
-				}
-				subnet_dereference(&subnet, MDL);
-				return 1;
-			}
-			u = t;
-		}
-		subnet_reference(&t->next_sibling, subnet, MDL);
-	}
-	subnet_dereference(&subnet, MDL);
-	return 1;
-}
-
 /* subnet-declaration :==
 	net NETMASK netmask RBRACE parameters declarations LBRACE */
 
@@ -2553,10 +2256,12 @@ void parse_subnet_declaration (cfile, share)
 {
 	const char *val;
 	enum dhcp_token token;
-	struct subnet *subnet;
+	struct subnet *subnet, *t, *u;
 	struct iaddr iaddr;
 	unsigned char addr [4];
 	unsigned len = sizeof addr;
+	int declaration = 0;
+	struct interface_info *ip;
 	isc_result_t status;
 
 	subnet = (struct subnet *)0;
@@ -2565,22 +2270,8 @@ void parse_subnet_declaration (cfile, share)
 		log_fatal ("Allocation of new subnet failed: %s",
 			   isc_result_totext (status));
 	shared_network_reference (&subnet -> shared_network, share, MDL);
-
-	/*
-	 * If our parent shared network was implicitly created by the software,
-	 * and not explicitly configured by the user, then we actually put all
-	 * configuration scope in the parent (the shared network and subnet
-	 * share the same {}-level scope).
-	 *
-	 * Otherwise, we clone the parent group and continue as normal.
-	 */
-	if (share->flags & SHARED_IMPLICIT) {
-		group_reference(&subnet->group, share->group, MDL);
-	} else {
-		if (!clone_group(&subnet->group, share->group, MDL)) {
-			log_fatal("Allocation of group for new subnet failed.");
-		}
-	}
+	if (!clone_group (&subnet -> group, share -> group, MDL))
+		log_fatal ("allocation of group for new subnet failed.");
 	subnet_reference (&subnet -> group -> subnet, subnet, MDL);
 
 	/* Get the network number... */
@@ -2622,121 +2313,65 @@ void parse_subnet_declaration (cfile, share)
 		return;
 	}
 
-	common_subnet_parsing(cfile, share, subnet);
-}
+	enter_subnet (subnet);
 
-/* subnet6-declaration :==
-	net / bits RBRACE parameters declarations LBRACE */
-
-void
-parse_subnet6_declaration(struct parse *cfile, struct shared_network *share) {
-#if !defined(DHCPv6)
-	parse_warn(cfile, "No DHCPv6 support.");
-	skip_to_semi(cfile);
-#else /* defined(DHCPv6) */
-	struct subnet *subnet;
-	isc_result_t status;
-	enum dhcp_token token;
-	const char *val;
-	char *endp;
-	int ofs;
-	const static int mask[] = { 0x00, 0x80, 0xC0, 0xE0, 
-				    0xF0, 0xF8, 0xFC, 0xFE };
-	struct iaddr iaddr;
-
-        if (local_family != AF_INET6) {
-                parse_warn(cfile, "subnet6 statement is only supported "
-				  "in DHCPv6 mode.");
-                skip_to_semi(cfile);
-                return;
-        }
-
-	subnet = NULL;
-	status = subnet_allocate(&subnet, MDL);
-	if (status != ISC_R_SUCCESS) {
-		log_fatal("Allocation of new subnet failed: %s",
-			  isc_result_totext(status));
+	if (!parse_lbrace (cfile)) {
+		subnet_dereference (&subnet, MDL);
+		return;
 	}
-	shared_network_reference(&subnet->shared_network, share, MDL);
 
-	/*
-	 * If our parent shared network was implicitly created by the software,
-	 * and not explicitly configured by the user, then we actually put all
-	 * configuration scope in the parent (the shared network and subnet
-	 * share the same {}-level scope).
-	 *
-	 * Otherwise, we clone the parent group and continue as normal.
-	 */
-	if (share->flags & SHARED_IMPLICIT) {
-		group_reference(&subnet->group, share->group, MDL);
-	} else {
-		if (!clone_group(&subnet->group, share->group, MDL)) {
-			log_fatal("Allocation of group for new subnet failed.");
+	do {
+		token = peek_token (&val, (unsigned *)0, cfile);
+		if (token == RBRACE) {
+			token = next_token (&val, (unsigned *)0, cfile);
+			break;
+		} else if (token == END_OF_FILE) {
+			token = next_token (&val, (unsigned *)0, cfile);
+			parse_warn (cfile, "unexpected end of file");
+			break;
+		} else if (token == INTERFACE) {
+			token = next_token (&val, (unsigned *)0, cfile);
+			token = next_token (&val, (unsigned *)0, cfile);
+			new_shared_network_interface (cfile, share, val);
+			if (!parse_semi (cfile))
+				break;
+			continue;
 		}
-	}
-	subnet_reference(&subnet->group->subnet, subnet, MDL);
+		declaration = parse_statement (cfile, subnet -> group,
+					       SUBNET_DECL,
+					       (struct host_decl *)0,
+					       declaration);
+	} while (1);
 
-	if (!parse_ip6_addr(cfile, &subnet->net)) {
-		subnet_dereference(&subnet, MDL);
-		return;
+	/* Add the subnet to the list of subnets in this shared net. */
+	if (!share -> subnets)
+		subnet_reference (&share -> subnets, subnet, MDL);
+	else {
+		u = (struct subnet *)0;
+		for (t = share -> subnets;
+		     t -> next_sibling; t = t -> next_sibling) {
+			if (subnet_inner_than (subnet, t, 0)) {
+				subnet_reference (&subnet -> next_sibling,
+						  t, MDL);
+				if (u) {
+					subnet_dereference (&u -> next_sibling,
+							    MDL);
+					subnet_reference (&u -> next_sibling,
+							  subnet, MDL);
+				} else {
+					subnet_dereference (&share -> subnets,
+							    MDL);
+					subnet_reference (&share -> subnets,
+							  subnet, MDL);
+				}
+				subnet_dereference (&subnet, MDL);
+				return;
+			}
+			u = t;
+		}
+		subnet_reference (&t -> next_sibling, subnet, MDL);
 	}
-
-	token = next_token(&val, NULL, cfile);
-	if (token != SLASH) {
-		parse_warn(cfile, "Expecting a '/'.");
-		skip_to_semi(cfile);
-		return;
-	}
-
-	token = next_token(&val, NULL, cfile);
-	if (token != NUMBER) {
-		parse_warn(cfile, "Expecting a number.");
-		skip_to_semi(cfile);
-		return;
-	}
-
-	subnet->prefix_len = strtol(val, &endp, 10);
-	if ((subnet->prefix_len < 0) || 
-	    (subnet->prefix_len > 128) || 
-	    (*endp != '\0')) {
-	    	parse_warn(cfile, "Expecting a number between 0 and 128.");
-		skip_to_semi(cfile);
-		return;
-	}
-
-	if (!is_cidr_mask_valid(&subnet->net, subnet->prefix_len)) {
-		parse_warn(cfile, "New subnet mask too short.");
-		skip_to_semi(cfile);
-		return;
-	}
-
-	/* 
-	 * Create a netmask. 
-	 */
-	subnet->netmask.len = 16;
-	ofs = subnet->prefix_len / 8;
-	if (ofs < subnet->netmask.len) {
-		subnet->netmask.iabuf[ofs] = mask[subnet->prefix_len % 8];
-	}
-	while (--ofs >= 0) {
-		subnet->netmask.iabuf[ofs] = 0xFF;
-	}
-
-	/* Validate the network number/netmask pair. */
-	iaddr = subnet_number(subnet->net, subnet->netmask);
-	if (memcmp(&iaddr, &subnet->net, 16) != 0) {
-		parse_warn(cfile,
-		   "subnet %s/%d: prefix not long enough for address.",
-			    piaddr(subnet->net), subnet->prefix_len);
-		subnet_dereference(&subnet, MDL);
-		skip_to_semi(cfile);
-		return;
-	}
-
-	if (!common_subnet_parsing(cfile, share, subnet)) {
-		return;
-	}
-#endif /* defined(DHCPv6) */
+	subnet_dereference (&subnet, MDL);
 }
 
 /* group-declaration :== RBRACE parameters declarations LBRACE */
@@ -2834,62 +2469,65 @@ void parse_group_declaration (cfile, group)
    ip-addrs-or-hostnames :== ip-addr-or-hostname
 			   | ip-addrs-or-hostnames ip-addr-or-hostname */
 
-int
-parse_fixed_addr_param(struct option_cache **oc, 
-		       struct parse *cfile, 
-		       enum dhcp_token type) {
-	int parse_ok;
+int parse_fixed_addr_param (oc, cfile)
+	struct option_cache **oc;
+	struct parse *cfile;
+{
 	const char *val;
 	enum dhcp_token token;
-	struct expression *expr = NULL;
+	struct expression *expr = (struct expression *)0;
 	struct expression *tmp, *new;
 	int status;
 
 	do {
-		tmp = NULL;
-		if (type == FIXED_ADDR) {
-			parse_ok = parse_ip_addr_or_hostname(&tmp, cfile, 1);
-		} else {
-			/* INSIST(type == FIXED_ADDR6); */
-			parse_ok = parse_ip6_addr_expr(&tmp, cfile);
-		}
-		if (parse_ok) {
-			if (expr != NULL) {
-				new = NULL;
-				status = make_concat(&new, expr, tmp);
-				expression_dereference(&expr, MDL);
-				expression_dereference(&tmp, MDL);
-				if (!status) {
-					return 0;
-				}
-				expr = new;
-			} else {
-				expr = tmp;
-			}
-		} else {
-			if (expr != NULL) {
+		tmp = (struct expression *)0;
+		if (parse_ip_addr_or_hostname (&tmp, cfile, 1)) {
+			if (expr) {
+				new = (struct expression *)0;
+				status = make_concat (&new, expr, tmp);
 				expression_dereference (&expr, MDL);
-			}
+				expression_dereference (&tmp, MDL);
+				if (!status)
+					return 0;
+				expr = new;
+			} else
+				expr = tmp;
+		} else {
+			if (expr)
+				expression_dereference (&expr, MDL);
 			return 0;
 		}
-		token = peek_token(&val, NULL, cfile);
-		if (token == COMMA) {
-			token = next_token(&val, NULL, cfile);
-		}
+		token = peek_token (&val, (unsigned *)0, cfile);
+		if (token == COMMA)
+			token = next_token (&val, (unsigned *)0, cfile);
 	} while (token == COMMA);
 
-	if (!parse_semi(cfile)) {
-		if (expr) {
+	if (!parse_semi (cfile)) {
+		if (expr)
 			expression_dereference (&expr, MDL);
-		}
 		return 0;
 	}
-
-	status = option_cache(oc, NULL, expr, NULL, MDL);
-	expression_dereference(&expr, MDL);
+	status = option_cache (oc, (struct data_string *)0, expr,
+			       (struct option *)0, MDL);
+	expression_dereference (&expr, MDL);
 	return status;
 }
 
+/* timestamp :== date
+
+   Timestamps are actually not used in dhcpd.conf, which is a static file,
+   but rather in the database file and the journal file.  (Okay, actually
+   they're not even used there yet). */
+
+TIME parse_timestamp (cfile)
+	struct parse *cfile;
+{
+	TIME rv;
+
+	rv = parse_date (cfile);
+	return rv;
+}
+		
 /* lease_declaration :== LEASE ip_address LBRACE lease_parameters RBRACE
 
    lease_parameters :== <nil>
@@ -2917,11 +2555,13 @@ int parse_lease_declaration (struct lease **lp, struct parse *cfile)
 	char tbuf [32];
 	struct lease *lease;
 	struct executable_statement *on;
+	struct expression *exp;
+	struct data_string ds;
 	int lose;
 	TIME t;
+	char *s;
 	int noequal, newbinding;
 	struct binding *binding;
-	struct binding_value *nv;
 	isc_result_t status;
 	struct option_cache *oc;
 	pair *p;
@@ -2979,6 +2619,11 @@ int parse_lease_declaration (struct lease **lp, struct parse *cfile)
 				lease -> ends = t;
 				break;
 				
+			      case TIMESTAMP:
+				seenbit = 4;
+				lease -> timestamp = t;
+				break;
+
 			      case TSTP:
 				seenbit = 65536;
 				lease -> tstp = t;
@@ -3054,7 +2699,7 @@ int parse_lease_declaration (struct lease **lp, struct parse *cfile)
 				log_fatal ("No memory for lease uid");
 			}
 			break;
-
+			
 		      case CLASS:
 			seenbit = 32;
 			token = next_token (&val, (unsigned *)0, cfile);
@@ -3074,19 +2719,12 @@ int parse_lease_declaration (struct lease **lp, struct parse *cfile)
 					      &lease -> hardware_addr);
 			break;
 
-		      case TOKEN_RESERVED:
-			seenbit = 0;
-			lease->flags |= RESERVED_LEASE;
-			parse_semi(cfile);
-			break;
-
 		      case DYNAMIC_BOOTP:
-			seenbit = 0;
+			seenbit = 256;
 			lease -> flags |= BOOTP_LEASE;
 			parse_semi (cfile);
 			break;
-
-			/* XXX: Reverse compatibility? */
+			
 		      case TOKEN_ABANDONED:
 			seenbit = 256;
 			lease -> binding_state = FTS_ABANDONED;
@@ -3137,19 +2775,13 @@ int parse_lease_declaration (struct lease **lp, struct parse *cfile)
 			      case TOKEN_BACKUP:
 				new_state = FTS_BACKUP;
 				break;
-
-				/* RESERVED and BOOTP states preserved for
-				 * compatibleness with older versions.
-				 */
 			      case TOKEN_RESERVED:
 				new_state = FTS_ACTIVE;
-				lease->flags |= RESERVED_LEASE;
 				break;
 			      case TOKEN_BOOTP:
 				new_state = FTS_ACTIVE;
-				lease->flags |= BOOTP_LEASE;
+				lease -> flags |= BOOTP_LEASE;
 				break;
-
 			      default:
 				parse_warn (cfile,
 					    "%s: expecting a binding state.",
@@ -3222,8 +2854,9 @@ int parse_lease_declaration (struct lease **lp, struct parse *cfile)
 				if (lease -> billing_class)
 				    class_dereference (&lease -> billing_class,
 						       MDL);
-				parse_class_declaration(&class, cfile, NULL,
-							CLASS_TYPE_SUBCLASS);
+				parse_class_declaration
+					(&class,
+					 cfile, (struct group *)0, 3);
 			} else {
 				parse_warn (cfile, "expecting \"class\"");
 				if (token != SEMI)
@@ -3261,7 +2894,7 @@ int parse_lease_declaration (struct lease **lp, struct parse *cfile)
 			}
 			executable_statement_dereference (&on, MDL);
 			break;
-
+			
 		      case OPTION:
 		      case SUPERSEDE:
 			noequal = 0;
@@ -3311,7 +2944,6 @@ int parse_lease_declaration (struct lease **lp, struct parse *cfile)
 				binding = find_binding (lease -> scope, val);
 			else
 				binding = (struct binding *)0;
-
 			if (!binding) {
 			    if (!lease -> scope)
 				if (!(binding_scope_allocate
@@ -3330,12 +2962,14 @@ int parse_lease_declaration (struct lease **lp, struct parse *cfile)
 			    strcpy (binding -> name, val);
 			    newbinding = 1;
 			} else  {
-			    newbinding = 0;
+				if (binding -> value)
+				  binding_value_dereference (&binding -> value,
+							   MDL);
+				newbinding = 0;
 			}
 
-			nv = NULL;
-			if (!binding_value_allocate(&nv, MDL))
-				log_fatal("no memory for binding value.");
+			if (!binding_value_allocate (&binding -> value, MDL))
+				log_fatal ("no memory for binding value.");
 
 			if (!noequal) {
 			    token = next_token (&val, (unsigned *)0, cfile);
@@ -3346,28 +2980,92 @@ int parse_lease_declaration (struct lease **lp, struct parse *cfile)
 			    }
 			}
 
-			if (!parse_binding_value(cfile, nv)) {
-				binding_value_dereference(&nv, MDL);
-				lease_dereference(&lease, MDL);
+			token = peek_token (&val, (unsigned *)0, cfile);
+			if (token == STRING) {
+			    unsigned char *tuid;
+			    token = next_token (&val, &buflen, cfile);
+			    binding -> value -> type = binding_data;
+			    binding -> value -> value.data.len = buflen;
+			    if (!(buffer_allocate
+				  (&binding -> value -> value.data.buffer,
+				   buflen + 1, MDL)))
+				log_fatal ("No memory for binding.");
+			    memcpy ((char *)
+				    (binding -> value ->
+				     value.data.buffer -> data),
+				    val, buflen + 1);
+			    binding -> value -> value.data.data =
+				binding -> value -> value.data.buffer -> data;
+			    binding -> value -> value.data.terminated = 1;
+			} else if (token == NUMBER_OR_NAME) {
+			    binding -> value -> type = binding_data;
+			    s = ((char *)
+				 (parse_numeric_aggregate
+				  (cfile, (unsigned char *)0,
+				   &binding -> value -> value.data.len,
+				   ':', 16, 8)));
+			    if (!s) {
+				    binding_value_dereference
+					    (&binding -> value, MDL);
+				    lease_dereference (&lease, MDL);
+				    return 0;
+			    }
+			    if (binding -> value -> value.data.len) {
+				if (!(buffer_allocate
+				      (&binding -> value -> value.data.buffer,
+				       binding -> value -> value.data.len + 1,
+				       MDL)))
+					log_fatal ("No memory for binding.");
+				memcpy ((binding -> value ->
+					 value.data.buffer -> data), s,
+					binding -> value -> value.data.len);
+				dfree (s, MDL);
+				binding -> value -> value.data.data =
+				 binding -> value -> value.data.buffer -> data;
+			    }
+			} else if (token == PERCENT) {
+			    token = next_token (&val, (unsigned *)0, cfile);
+			    token = next_token (&val, (unsigned *)0, cfile);
+			    if (token != NUMBER) {
+				    parse_warn (cfile,
+						"expecting decimal number.");
+				    if (token != SEMI)
+					    skip_to_semi (cfile);
+				    binding_value_dereference
+					    (&binding -> value, MDL);
+				    lease_dereference (&lease, MDL);
+				    return 0;
+			    }
+			    binding -> value -> type = binding_numeric;
+			    binding -> value -> value.intval = atol (val);
+			} else if (token == NAME) {
+				token = next_token (&val,
+						    (unsigned *)0, cfile);
+				binding -> value -> type = binding_boolean;
+				if (!strcasecmp (val, "true"))
+					binding -> value -> value.boolean = 1;
+				else if (!strcasecmp (val, "false"))
+					binding -> value -> value.boolean = 0;
+				else
+					goto badbool;
+			} else {
+			      badbool:
+				parse_warn (cfile,
+					    "expecting a constant value.");
+				skip_to_semi (cfile);
+				binding_value_dereference (&binding -> value,
+							   MDL);
+				lease_dereference (&lease, MDL);
 				return 0;
 			}
-
+				
 			if (newbinding) {
-				binding_value_reference(&binding->value,
-							nv, MDL);
-				binding->next = lease->scope->bindings;
-				lease->scope->bindings = binding;
-			} else {
-				binding_value_dereference(&binding->value, MDL);
-				binding_value_reference(&binding->value,
-							nv, MDL);
+				binding -> next = lease -> scope -> bindings;
+				lease -> scope -> bindings = binding;
 			}
-
-			binding_value_dereference(&nv, MDL);
-			parse_semi(cfile);
+			parse_semi (cfile);
 			break;
 
-			/* case NAME: */
 		      default:
 			if (!strcasecmp (val, "ddns-fwd-name")) {
 				seenbit = 4096;
@@ -3377,9 +3075,7 @@ int parse_lease_declaration (struct lease **lp, struct parse *cfile)
 				seenbit = 8192;
 				noequal = 1;
 				goto special_set;
-			} else
-				parse_warn(cfile, "Unexpected configuration "
-						  "directive.");
+			}
 			skip_to_semi (cfile);
 			seenbit = 0;
 			lease_dereference (&lease, MDL);
@@ -3425,95 +3121,6 @@ int parse_lease_declaration (struct lease **lp, struct parse *cfile)
 	return 1;
 }
 
-/* Parse the right side of a 'binding value'.
- *
- * set foo = "bar"; is a string
- * set foo = false; is a boolean
- * set foo = %31; is a numeric value.
- */
-static int
-parse_binding_value(struct parse *cfile, struct binding_value *value)
-{
-	struct data_string *data;
-	unsigned char *s;
-	const char *val;
-	unsigned buflen;
-	int token;
-
-	if ((cfile == NULL) || (value == NULL))
-		log_fatal("Invalid arguments at %s:%d.", MDL);
-
-	token = peek_token(&val, NULL, cfile);
-	if (token == STRING) {
-		token = next_token(&val, &buflen, cfile);
-
-		value->type = binding_data;
-		value->value.data.len = buflen;
-
-		data = &value->value.data;
-
-		if (!buffer_allocate(&data->buffer, buflen + 1, MDL))
-			log_fatal ("No memory for binding.");
-
-		memcpy(data->buffer->data, val, buflen + 1);
-
-		data->data = data->buffer->data;
-		data->terminated = 1;
-	} else if (token == NUMBER_OR_NAME) {
-		value->type = binding_data;
-
-		data = &value->value.data;
-		s = parse_numeric_aggregate(cfile, NULL, &data->len,
-					    ':', 16, 8);
-		if (s == NULL) {
-			skip_to_semi(cfile);
-			return 0;
-		}
-
-		if (data->len) {
-			if (!buffer_allocate(&data->buffer, data->len + 1,
-					     MDL))
-				log_fatal("No memory for binding.");
-
-			memcpy(data->buffer->data, s, data->len);
-			data->data = data->buffer->data;
-
-			dfree (s, MDL);
-		}
-	} else if (token == PERCENT) {
-		token = next_token(&val, NULL, cfile);
-		token = next_token(&val, NULL, cfile);
-		if (token != NUMBER) {
-			parse_warn(cfile, "expecting decimal number.");
-			if (token != SEMI)
-				skip_to_semi(cfile);
-			return 0;
-		}
-		value->type = binding_numeric;
-		value->value.intval = atol(val);
-	} else if (token == NAME) {
-		token = next_token(&val, NULL, cfile);
-		value->type = binding_boolean;
-		if (!strcasecmp(val, "true"))
-			value->value.boolean = 1;
-		else if (!strcasecmp(val, "false"))
-			value->value.boolean = 0;
-		else {
-			parse_warn(cfile, "expecting true or false");
-			if (token != SEMI)
-				skip_to_semi(cfile);
-			return 0;
-		}
-	} else {
-		parse_warn (cfile, "expecting a constant value.");
-		if (token != SEMI)
-			skip_to_semi (cfile);
-		return 0;
-	}
-
-	return 1;
-}
-
 /* address-range-declaration :== ip-address ip-address SEMI
 			       | DYNAMIC_BOOTP ip-address ip-address SEMI */
 
@@ -3532,6 +3139,7 @@ void parse_address_range (cfile, group, type, inpool, lpchain)
 	int dynamic = 0;
 	struct subnet *subnet;
 	struct shared_network *share;
+	struct pool *p;
 	struct pool *pool;
 	isc_result_t status;
 
@@ -3679,375 +3287,6 @@ void parse_address_range (cfile, group, type, inpool, lpchain)
 	pool_dereference (&pool, MDL);
 }
 
-#ifdef DHCPv6
-static void
-add_ipv6_pool_to_subnet(struct subnet *subnet, u_int16_t type,
-			struct iaddr *lo_addr, int bits, int units) {
-	struct ipv6_pool *pool;
-	struct shared_network *share;
-	struct in6_addr tmp_in6_addr;
-	int num_pools;
-	struct ipv6_pool **tmp;
-
-	share = subnet->shared_network;
-
-	/*
-	 * Create our pool.
-	 */
-	if (lo_addr->len != sizeof(tmp_in6_addr)) {
-		log_fatal("Internal error: Attempt to add non-IPv6 address "
-			  "to IPv6 shared network.");
-	}
-	memcpy(&tmp_in6_addr, lo_addr->iabuf, sizeof(tmp_in6_addr));
-	pool = NULL;
-	if (ipv6_pool_allocate(&pool, type, &tmp_in6_addr,
-			       bits, units, MDL) != ISC_R_SUCCESS) {
-		log_fatal("Out of memory");
-	}
-
-	/*
-	 * Add to our global IPv6 pool set.
-	 */
-	if (add_ipv6_pool(pool) != ISC_R_SUCCESS) {
-		log_fatal ("Out of memory");
-	}
-
-	/*
-	 * Link the pool to its network.
-	 */
-	pool->subnet = NULL;
-	subnet_reference(&pool->subnet, subnet, MDL);
-	pool->shared_network = NULL;
-	shared_network_reference(&pool->shared_network, share, MDL);
-
-	/* 
-	 * Increase our array size for ipv6_pools in the shared_network.
-	 */
-	if (share->ipv6_pools == NULL) {
-		num_pools = 0;
-	} else {
-		num_pools = 0;
-		while (share->ipv6_pools[num_pools] != NULL) {
-			num_pools++;
-		}
-	}
-	tmp = dmalloc(sizeof(struct ipv6_pool *) * (num_pools + 2), MDL);
-	if (tmp == NULL) {
-		log_fatal("Out of memory");
-	}
-	if (num_pools > 0) {
-		memcpy(tmp, share->ipv6_pools, 
-		       sizeof(struct ipv6_pool *) * num_pools);
-	}
-	if (share->ipv6_pools != NULL) {
-		dfree(share->ipv6_pools, MDL);
-	}
-	share->ipv6_pools = tmp;
-
-	/* 
-	 * Record this pool in our array of pools for this shared network.
-	 */
-	ipv6_pool_reference(&share->ipv6_pools[num_pools], pool, MDL);
-	share->ipv6_pools[num_pools+1] = NULL;
-}
-
-/* address-range6-declaration :== ip-address6 ip-address6 SEMI
-			       | ip-address6 SLASH number SEMI
-			       | ip-address6 [SLASH number] TEMPORARY SEMI */
-
-void 
-parse_address_range6(struct parse *cfile, struct group *group) {
-	struct iaddr lo, hi;
-	int bits;
-	enum dhcp_token token;
-	const char *val;
-	struct iaddrcidrnetlist *nets;
-	struct iaddrcidrnetlist *p;
-	u_int16_t type = D6O_IA_NA;
-
-        if (local_family != AF_INET6) {
-                parse_warn(cfile, "range6 statement is only supported "
-				  "in DHCPv6 mode.");
-                skip_to_semi(cfile);
-                return;
-        }
-
-	/* This is enforced by the caller, this is just a sanity check. */
-	if (group->subnet == NULL)
-		log_fatal("Impossible condition at %s:%d.", MDL);
-
-	/*
-	 * Read starting address.
-	 */
-	if (!parse_ip6_addr(cfile, &lo)) {
-		return;
-	}
-
-	/* 
-	 * See if we we're using range or CIDR notation or TEMPORARY
-	 */
-	token = peek_token(&val, NULL, cfile);
-	if (token == SLASH) {
-		/*
-		 * '/' means CIDR notation, so read the bits we want.
-		 */
-		next_token(NULL, NULL, cfile);
-		token = next_token(&val, NULL, cfile);
-		if (token != NUMBER) { 
-			parse_warn(cfile, "expecting number");
-			skip_to_semi(cfile);
-			return;
-		}
-		bits = atoi(val);
-		if ((bits < 0) || (bits > 128)) {
-			parse_warn(cfile, "networks have 0 to 128 bits");
-			skip_to_semi(cfile);
-			return;
-		}
-		if (!is_cidr_mask_valid(&lo, bits)) {
-			parse_warn(cfile, "network mask too short");
-			skip_to_semi(cfile);
-			return;
-		}
-
-		/*
-		 * can be temporary (RFC 4941 like)
-		 */
-		token = peek_token(&val, NULL, cfile);
-		if (token == TEMPORARY) {
-			if (bits < 64)
-				parse_warn(cfile, "temporary mask too short");
-			if (bits == 128)
-				parse_warn(cfile, "temporary singleton?");
-			token = next_token(NULL, NULL, cfile);
-			type = D6O_IA_TA;
-		}
-
-		add_ipv6_pool_to_subnet(group->subnet, type, &lo,
-					bits, 128);
-
-	} else if (token == TEMPORARY) {
-		/*
-		 * temporary (RFC 4941)
-		 */
-		type = D6O_IA_TA;
-		next_token(NULL, NULL, cfile);
-		bits = 64;
-		if (!is_cidr_mask_valid(&lo, bits)) {
-			parse_warn(cfile, "network mask too short");
-			skip_to_semi(cfile);
-			return;
-		}
-
-		add_ipv6_pool_to_subnet(group->subnet, type, &lo,
-					bits, 128);
-	} else {
-		/*
-		 * No '/', so we are looking for the end address of 
-		 * the IPv6 pool.
-		 */
-		if (!parse_ip6_addr(cfile, &hi)) {
-			return;
-		}
-
-		/*
-		 * Convert our range to a set of CIDR networks.
-		 */
-		nets = NULL;
-		if (range2cidr(&nets, &lo, &hi) != ISC_R_SUCCESS) {
-			log_fatal("Error converting range to CIDR networks");
-		}
-
-		for (p=nets; p != NULL; p=p->next) {
-			add_ipv6_pool_to_subnet(group->subnet, type,
-						&p->cidrnet.lo_addr, 
-						p->cidrnet.bits, 128);
-		}
-
-		free_iaddrcidrnetlist(&nets);
-	}
-
-	token = next_token(NULL, NULL, cfile);
-	if (token != SEMI) {
-		parse_warn(cfile, "semicolon expected.");
-		skip_to_semi(cfile);
-		return;
-	}
-}
-
-/* prefix6-declaration :== ip-address6 ip-address6 SLASH number SEMI */
-
-void 
-parse_prefix6(struct parse *cfile, struct group *group) {
-	struct iaddr lo, hi;
-	int bits;
-	enum dhcp_token token;
-	const char *val;
-	struct iaddrcidrnetlist *nets;
-	struct iaddrcidrnetlist *p;
-
-	if (local_family != AF_INET6) {
-		parse_warn(cfile, "prefix6 statement is only supported "
-				  "in DHCPv6 mode.");
-		skip_to_semi(cfile);
-		return;
-	}
-
-	/* This is enforced by the caller, so it's just a sanity check. */
-	if (group->subnet == NULL)
-		log_fatal("Impossible condition at %s:%d.", MDL);
-
-	/*
-	 * Read starting and ending address.
-	 */
-	if (!parse_ip6_addr(cfile, &lo)) {
-		return;
-	}
-	if (!parse_ip6_addr(cfile, &hi)) {
-		return;
-	}
-
-	/*
-	 * Next is '/' number ';'.
-	 */
-	token = next_token(NULL, NULL, cfile);
-	if (token != SLASH) {
-		parse_warn(cfile, "expecting '/'");
-		if (token != SEMI)
-			skip_to_semi(cfile);
-		return;
-	}
-	token = next_token(&val, NULL, cfile);
-	if (token != NUMBER) {
-		parse_warn(cfile, "expecting number");
-		if (token != SEMI)
-			skip_to_semi(cfile);
-		return;
-	}
-	bits = atoi(val);
-	if ((bits <= 0) || (bits >= 128)) {
-		parse_warn(cfile, "networks have 0 to 128 bits (exclusive)");
-		return;
-	}
-	if (!is_cidr_mask_valid(&lo, bits) ||
-	    !is_cidr_mask_valid(&hi, bits)) {
-		parse_warn(cfile, "network mask too short");
-		return;
-	}
-	token = next_token(NULL, NULL, cfile);
-	if (token != SEMI) {
-		parse_warn(cfile, "semicolon expected.");
-		skip_to_semi(cfile);
-		return;
-	}
-
-	/*
-	 * Convert our range to a set of CIDR networks.
-	 */
-	nets = NULL;
-	if (range2cidr(&nets, &lo, &hi) != ISC_R_SUCCESS) {
-		log_fatal("Error converting prefix to CIDR");
-	}
-
-	for (p = nets; p != NULL; p = p->next) {
-		/* Normalize and check. */
-		if (p->cidrnet.bits == 128) {
-			p->cidrnet.bits = bits;
-		}
-		if (p->cidrnet.bits > bits) {
-			parse_warn(cfile, "impossible mask length");
-			continue;
-		}
-		add_ipv6_pool_to_subnet(group->subnet, D6O_IA_PD,
-					&p->cidrnet.lo_addr,
-					p->cidrnet.bits, bits);
-	}
-
-	free_iaddrcidrnetlist(&nets);
-}
-
-/* fixed-prefix6 :== ip6-address SLASH number SEMI */
-
-void
-parse_fixed_prefix6(struct parse *cfile, struct host_decl *host_decl) {
-	struct iaddrcidrnetlist *ia, **h;
-	enum dhcp_token token;
-	const char *val;
-
-	/*
-	 * Get the head of the fixed-prefix list.
-	 */
-	h = &host_decl->fixed_prefix;
-
-	/*
-	 * Walk to the end.
-	 */
-	while (*h != NULL) {
-		h = &((*h)->next);
-	}
-
-	/*
-	 * Allocate a new iaddrcidrnetlist structure.
-	 */
-	ia = dmalloc(sizeof(*ia), MDL);
-	if (!ia) {
-		log_fatal("Out of memory");
-	}
-
-	/*
-	 * Parse it.
-	 */
-	if (!parse_ip6_addr(cfile, &ia->cidrnet.lo_addr)) {
-		dfree(ia, MDL);
-		return;
-	}
-	token = next_token(NULL, NULL, cfile);
-	if (token != SLASH) {
-		dfree(ia, MDL);
-		parse_warn(cfile, "expecting '/'");
-		if (token != SEMI)
-			skip_to_semi(cfile);
-		return;
-	}
-	token = next_token(&val, NULL, cfile);
-	if (token != NUMBER) {
-		dfree(ia, MDL);
-		parse_warn(cfile, "expecting number");
-		if (token != SEMI)
-			skip_to_semi(cfile);
-		return;
-	}
-	token = next_token(NULL, NULL, cfile);
-	if (token != SEMI) {
-		dfree(ia, MDL);
-		parse_warn(cfile, "semicolon expected.");
-		skip_to_semi(cfile);
-		return;
-	}
-
-	/*
-	 * Fill it.
-	 */
-	ia->cidrnet.bits = atoi(val);
-	if ((ia->cidrnet.bits < 0) || (ia->cidrnet.bits > 128)) {
-		dfree(ia, MDL);
-		parse_warn(cfile, "networks have 0 to 128 bits");
-		return;
-	}
-	if (!is_cidr_mask_valid(&ia->cidrnet.lo_addr, ia->cidrnet.bits)) {
-		dfree(ia, MDL);
-		parse_warn(cfile, "network mask too short");
-		return;
-	}
-
-	/*
-	 * Store it.
-	 */
-	*h = ia;
-	return;
-}
-#endif /* DHCPv6 */
-
 /* allow-deny-keyword :== BOOTP
    			| BOOTING
 			| DYNAMIC_BOOTP
@@ -4061,8 +3300,6 @@ int parse_allow_deny (oc, cfile, flag)
 	enum dhcp_token token;
 	const char *val;
 	unsigned char rf = flag;
-	unsigned code;
-	struct option *option = NULL;
 	struct expression *data = (struct expression *)0;
 	int status;
 
@@ -4072,35 +3309,42 @@ int parse_allow_deny (oc, cfile, flag)
 	token = next_token (&val, (unsigned *)0, cfile);
 	switch (token) {
 	      case TOKEN_BOOTP:
-		code = SV_ALLOW_BOOTP;
+		status = option_cache (oc, (struct data_string *)0, data,
+				       &server_options [SV_ALLOW_BOOTP], MDL);
 		break;
 
 	      case BOOTING:
-		code = SV_ALLOW_BOOTING;
+		status = option_cache (oc, (struct data_string *)0, data,
+				       &server_options [SV_ALLOW_BOOTING],
+				       MDL);
 		break;
 
 	      case DYNAMIC_BOOTP:
-		code = SV_DYNAMIC_BOOTP;
+		status = option_cache (oc, (struct data_string *)0, data,
+				       &server_options [SV_DYNAMIC_BOOTP],
+				       MDL);
 		break;
 
 	      case UNKNOWN_CLIENTS:
-		code = SV_BOOT_UNKNOWN_CLIENTS;
+		status = (option_cache
+			  (oc, (struct data_string *)0, data,
+			   &server_options [SV_BOOT_UNKNOWN_CLIENTS], MDL));
 		break;
 
 	      case DUPLICATES:
-		code = SV_DUPLICATES;
+		status = option_cache (oc, (struct data_string *)0, data,
+				       &server_options [SV_DUPLICATES], MDL);
 		break;
 
 	      case DECLINES:
-		code= SV_DECLINES;
+		status = option_cache (oc, (struct data_string *)0, data,
+				       &server_options [SV_DECLINES], MDL);
 		break;
 
 	      case CLIENT_UPDATES:
-		code = SV_CLIENT_UPDATES;
-		break;
-
-	      case LEASEQUERY:
-		code = SV_LEASEQUERY;
+		status = option_cache (oc, (struct data_string *)0, data,
+				       &server_options [SV_CLIENT_UPDATES],
+				       MDL);
 		break;
 
 	      default:
@@ -4108,1306 +3352,8 @@ int parse_allow_deny (oc, cfile, flag)
 		skip_to_semi (cfile);
 		return 0;
 	}
-	/* Reference on option is passed to option cache. */
-	if (!option_code_hash_lookup(&option, server_universe.code_hash,
-				     &code, 0, MDL))
-		log_fatal("Unable to find server option %u (%s:%d).",
-			  code, MDL);
-	status = option_cache(oc, NULL, data, option, MDL);
 	expression_dereference (&data, MDL);
 	parse_semi (cfile);
 	return status;
 }
-
-void
-parse_ia_na_declaration(struct parse *cfile) {
-#if !defined(DHCPv6)
-	parse_warn(cfile, "No DHCPv6 support.");
-	skip_to_semi(cfile);
-#else /* defined(DHCPv6) */
-	enum dhcp_token token;
-	struct ia_xx *ia;
-	const char *val;
-	struct ia_xx *old_ia;
-	unsigned int len;
-	u_int32_t iaid;
-	struct iaddr iaddr;
-	binding_state_t state;
-	u_int32_t prefer;
-	u_int32_t valid;
-	TIME end_time;
-	struct iasubopt *iaaddr;
-	struct ipv6_pool *pool;
-	char addr_buf[sizeof("ffff:ffff:ffff:ffff:ffff:ffff:255.255.255.255")];
-	isc_boolean_t newbinding;
-	struct binding_scope *scope=NULL;
-	struct binding *bnd;
-	struct binding_value *nv=NULL;
-
-        if (local_family != AF_INET6) {
-                parse_warn(cfile, "IA_NA is only supported in DHCPv6 mode.");
-                skip_to_semi(cfile);
-                return;
-        }
-
-	token = next_token(&val, &len, cfile);
-	if (token != STRING) {
-		parse_warn(cfile, "corrupt lease file; "
-				  "expecting an iaid+ia_na string");
-		skip_to_semi(cfile);
-		return;
-	}
-	if (len < 5) {
-		parse_warn(cfile, "corrupt lease file; "
-				  "iaid+ia_na string too short");
-		skip_to_semi(cfile);
-		return;
-	}
-
-	memcpy(&iaid, val, 4);
-	ia = NULL;
-	if (ia_allocate(&ia, iaid, val+4, len-4, MDL) != ISC_R_SUCCESS) {
-		log_fatal("Out of memory.");
-	}
-	ia->ia_type = D6O_IA_NA;
-
-	token = next_token(&val, NULL, cfile);
-	if (token != LBRACE) {
-		parse_warn(cfile, "corrupt lease file; expecting left brace");
-		skip_to_semi(cfile);
-		return;
-	}
-
-	for (;;) {
-		token = next_token(&val, NULL, cfile);
-		if (token == RBRACE) break;
-
-		if (token == CLTT) {
-			ia->cltt = parse_date (cfile);
-			continue;
-		}
-
-		if (token != IAADDR) {
-			parse_warn(cfile, "corrupt lease file; "
-					  "expecting IAADDR or right brace");
-			skip_to_semi(cfile);
-			return;
-		}
-
-		if (!parse_ip6_addr(cfile, &iaddr)) {
-			parse_warn(cfile, "corrupt lease file; "
-					  "expecting IPv6 address");
-			skip_to_semi(cfile);
-			return;
-		}
-
-		token = next_token(&val, NULL, cfile);
-		if (token != LBRACE) {
-			parse_warn(cfile, "corrupt lease file; "
-					  "expecting left brace");
-			skip_to_semi(cfile);
-			return;
-		}
-
-		state = FTS_LAST+1;
-		prefer = valid = 0;
-		end_time = -1;
-		for (;;) {
-			token = next_token(&val, NULL, cfile);
-			if (token == RBRACE) break;
-
-			switch(token) {
-				/* Lease binding state. */
-			     case BINDING:
-				token = next_token(&val, NULL, cfile);
-				if (token != STATE) {
-					parse_warn(cfile, "corrupt lease file; "
-							  "expecting state");
-					skip_to_semi(cfile);
-					return;
-				}
-				token = next_token(&val, NULL, cfile);
-				switch (token) {
-					case TOKEN_ABANDONED:
-						state = FTS_ABANDONED;
-						break;
-					case TOKEN_FREE:
-						state = FTS_FREE;
-						break;
-					case TOKEN_ACTIVE:
-						state = FTS_ACTIVE;
-						break;
-					case TOKEN_EXPIRED:
-						state = FTS_EXPIRED;
-						break;
-					case TOKEN_RELEASED:
-						state = FTS_RELEASED;
-						break;
-					default:
-						parse_warn(cfile,
-							   "corrupt lease "
-							   "file; "
-					    		   "expecting a "
-							   "binding state.");
-						skip_to_semi(cfile);
-						return;
-				}
-
-				token = next_token(&val, NULL, cfile);
-				if (token != SEMI) {
-					parse_warn(cfile, "corrupt lease file; "
-							  "expecting "
-							  "semicolon.");
-				}
-				break;
-
-				/* Lease preferred lifetime. */
-			      case PREFERRED_LIFE:
-				token = next_token(&val, NULL, cfile);
-				if (token != NUMBER) {
-					parse_warn(cfile, "%s is not a valid "
-							  "preferred time",
-						   val);
-					skip_to_semi(cfile);
-					continue;
-				}
-				prefer = atoi (val);
-				break;
-
-				/* Lease valid lifetime. */
-			      case MAX_LIFE:
-				token = next_token(&val, NULL, cfile);
-				if (token != NUMBER) {
-					parse_warn(cfile, "%s is not a valid "
-							  "max time",
-						   val);
-					skip_to_semi(cfile);
-					continue;
-				}
-				valid = atoi (val);
-				break;
-
-				/* Lease expiration time. */
-			      case ENDS:
-				end_time = parse_date(cfile);
-				break;
-
-				/* Lease binding scopes. */
-			      case TOKEN_SET:
-				token = next_token(&val, NULL, cfile);
-				if ((token != NAME) &&
-				    (token != NUMBER_OR_NAME)) {
-					parse_warn(cfile, "%s is not a valid "
-							  "variable name",
-						   val);
-					skip_to_semi(cfile);
-					continue;
-				}
-
-				if (scope != NULL)
-					bnd = find_binding(scope, val);
-				else {
-					if (!binding_scope_allocate(&scope,
-								    MDL)) {
-						log_fatal("Out of memory for "
-							  "lease binding "
-							  "scope.");
-					}
-
-					bnd = NULL;
-				}
-
-				if (bnd == NULL) {
-					bnd = dmalloc(sizeof(*bnd),
-							  MDL);
-					if (bnd == NULL) {
-						log_fatal("No memory for "
-							  "lease binding.");
-					}
-
-					bnd->name = dmalloc(strlen(val) + 1,
-							    MDL);
-					if (bnd->name == NULL) {
-						log_fatal("No memory for "
-							  "binding name.");
-					}
-					strcpy(bnd->name, val);
-
-					newbinding = ISC_TRUE;
-				} else {
-					newbinding = ISC_FALSE;
-				}
-
-				if (!binding_value_allocate(&nv, MDL)) {
-					log_fatal("no memory for binding "
-						  "value.");
-				}
-
-				token = next_token(NULL, NULL, cfile);
-				if (token != EQUAL) {
-					parse_warn(cfile, "expecting '=' in "
-							  "set statement.");
-					goto binding_err;
-				}
-
-				if (!parse_binding_value(cfile, nv)) {
-				      binding_err:
-					binding_value_dereference(&nv, MDL);
-					binding_scope_dereference(&scope, MDL);
-					return;
-				}
-
-				if (newbinding) {
-					binding_value_reference(&bnd->value,
-								nv, MDL);
-					bnd->next = scope->bindings;
-					scope->bindings = bnd;
-				} else {
-					binding_value_dereference(&bnd->value,
-								  MDL);
-					binding_value_reference(&bnd->value,
-								nv, MDL);
-				}
-
-				binding_value_dereference(&nv, MDL);
-				parse_semi(cfile);
-				break;
-
-			      default:
-				parse_warn(cfile, "corrupt lease file; "
-						  "expecting ia_na contents, "
-						  "got '%s'", val);
-				skip_to_semi(cfile);
-				continue;
-			}
-		}
-
-		if (state == FTS_LAST+1) {
-			parse_warn(cfile, "corrupt lease file; "
-					  "missing state in iaaddr");
-			return;
-		}
-		if (end_time == -1) {
-			parse_warn(cfile, "corrupt lease file; "
-					  "missing end time in iaaddr");
-			return;
-		}
-
-		iaaddr = NULL;
-		if (iasubopt_allocate(&iaaddr, MDL) != ISC_R_SUCCESS) {
-			log_fatal("Out of memory.");
-		}
-		memcpy(&iaaddr->addr, iaddr.iabuf, sizeof(iaaddr->addr));
-		iaaddr->plen = 0;
-		iaaddr->state = state;
-		iaaddr->prefer = prefer;
-		iaaddr->valid = valid;
-		if (iaaddr->state == FTS_RELEASED)
-			iaaddr->hard_lifetime_end_time = end_time;
-
-		if (scope != NULL) {
-			binding_scope_reference(&iaaddr->scope, scope, MDL);
-			binding_scope_dereference(&scope, MDL);
-		}
-
-		/* add to our various structures */
-		ia_add_iasubopt(ia, iaaddr, MDL);
-		ia_reference(&iaaddr->ia, ia, MDL);
-		pool = NULL;
-		if (find_ipv6_pool(&pool, D6O_IA_NA,
-				   &iaaddr->addr) != ISC_R_SUCCESS) {
-			inet_ntop(AF_INET6, &iaaddr->addr,
-				  addr_buf, sizeof(addr_buf));
-			parse_warn(cfile, "no pool found for address %s", 
-				   addr_buf);
-			return;
-		}
-		add_lease6(pool, iaaddr, end_time);
-		ipv6_pool_dereference(&pool, MDL);
-		iasubopt_dereference(&iaaddr, MDL);
-	}
-
-	/*
-	 * If we have an existing record for this IA_NA, remove it.
-	 */
-	old_ia = NULL;
-	if (ia_hash_lookup(&old_ia, ia_na_active,
-			   (unsigned char *)ia->iaid_duid.data,
-			   ia->iaid_duid.len, MDL)) {
-		ia_hash_delete(ia_na_active, 
-			       (unsigned char *)ia->iaid_duid.data,
-			       ia->iaid_duid.len, MDL);
-		ia_dereference(&old_ia, MDL);
-	}
-
-	/*
-	 * If we have addresses, add this, otherwise don't bother.
-	 */
-	if (ia->num_iasubopt > 0) {
-		ia_hash_add(ia_na_active, 
-			    (unsigned char *)ia->iaid_duid.data,
-			    ia->iaid_duid.len, ia, MDL);
-	}
-	ia_dereference(&ia, MDL);
-#endif /* defined(DHCPv6) */
-}
-
-void
-parse_ia_ta_declaration(struct parse *cfile) {
-#if !defined(DHCPv6)
-	parse_warn(cfile, "No DHCPv6 support.");
-	skip_to_semi(cfile);
-#else /* defined(DHCPv6) */
-	enum dhcp_token token;
-	struct ia_xx *ia;
-	const char *val;
-	struct ia_xx *old_ia;
-	unsigned int len;
-	u_int32_t iaid;
-	struct iaddr iaddr;
-	binding_state_t state;
-	u_int32_t prefer;
-	u_int32_t valid;
-	TIME end_time;
-	struct iasubopt *iaaddr;
-	struct ipv6_pool *pool;
-	char addr_buf[sizeof("ffff:ffff:ffff:ffff:ffff:ffff:255.255.255.255")];
-	isc_boolean_t newbinding;
-	struct binding_scope *scope=NULL;
-	struct binding *bnd;
-	struct binding_value *nv=NULL;
-
-        if (local_family != AF_INET6) {
-                parse_warn(cfile, "IA_TA is only supported in DHCPv6 mode.");
-                skip_to_semi(cfile);
-                return;
-        }
-
-	token = next_token(&val, &len, cfile);
-	if (token != STRING) {
-		parse_warn(cfile, "corrupt lease file; "
-				  "expecting an iaid+ia_ta string");
-		skip_to_semi(cfile);
-		return;
-	}
-	if (len < 5) {
-		parse_warn(cfile, "corrupt lease file; "
-				  "iaid+ia_ta string too short");
-		skip_to_semi(cfile);
-		return;
-	}
-
-	memcpy(&iaid, val, 4);
-	ia = NULL;
-	if (ia_allocate(&ia, iaid, val+4, len-4, MDL) != ISC_R_SUCCESS) {
-		log_fatal("Out of memory.");
-	}
-	ia->ia_type = D6O_IA_TA;
-
-	token = next_token(&val, NULL, cfile);
-	if (token != LBRACE) {
-		parse_warn(cfile, "corrupt lease file; expecting left brace");
-		skip_to_semi(cfile);
-		return;
-	}
-
-	for (;;) {
-		token = next_token(&val, NULL, cfile);
-		if (token == RBRACE) break;
-
-		if (token == CLTT) {
-			ia->cltt = parse_date (cfile);
-			continue;
-		}
-
-		if (token != IAADDR) {
-			parse_warn(cfile, "corrupt lease file; "
-					  "expecting IAADDR or right brace");
-			skip_to_semi(cfile);
-			return;
-		}
-
-		if (!parse_ip6_addr(cfile, &iaddr)) {
-			parse_warn(cfile, "corrupt lease file; "
-					  "expecting IPv6 address");
-			skip_to_semi(cfile);
-			return;
-		}
-
-		token = next_token(&val, NULL, cfile);
-		if (token != LBRACE) {
-			parse_warn(cfile, "corrupt lease file; "
-					  "expecting left brace");
-			skip_to_semi(cfile);
-			return;
-		}
-
-		state = FTS_LAST+1;
-		prefer = valid = 0;
-		end_time = -1;
-		for (;;) {
-			token = next_token(&val, NULL, cfile);
-			if (token == RBRACE) break;
-
-			switch(token) {
-				/* Lease binding state. */
-			     case BINDING:
-				token = next_token(&val, NULL, cfile);
-				if (token != STATE) {
-					parse_warn(cfile, "corrupt lease file; "
-							  "expecting state");
-					skip_to_semi(cfile);
-					return;
-				}
-				token = next_token(&val, NULL, cfile);
-				switch (token) {
-					case TOKEN_ABANDONED:
-						state = FTS_ABANDONED;
-						break;
-					case TOKEN_FREE:
-						state = FTS_FREE;
-						break;
-					case TOKEN_ACTIVE:
-						state = FTS_ACTIVE;
-						break;
-					case TOKEN_EXPIRED:
-						state = FTS_EXPIRED;
-						break;
-					case TOKEN_RELEASED:
-						state = FTS_RELEASED;
-						break;
-					default:
-						parse_warn(cfile,
-							   "corrupt lease "
-							   "file; "
-					    		   "expecting a "
-							   "binding state.");
-						skip_to_semi(cfile);
-						return;
-				}
-
-				token = next_token(&val, NULL, cfile);
-				if (token != SEMI) {
-					parse_warn(cfile, "corrupt lease file; "
-							  "expecting "
-							  "semicolon.");
-				}
-				break;
-
-				/* Lease preferred lifetime. */
-			      case PREFERRED_LIFE:
-				token = next_token(&val, NULL, cfile);
-				if (token != NUMBER) {
-					parse_warn(cfile, "%s is not a valid "
-							  "preferred time",
-						   val);
-					skip_to_semi(cfile);
-					continue;
-				}
-				prefer = atoi (val);
-				break;
-
-				/* Lease valid lifetime. */
-			      case MAX_LIFE:
-				token = next_token(&val, NULL, cfile);
-				if (token != NUMBER) {
-					parse_warn(cfile, "%s is not a valid "
-							  "max time",
-						   val);
-					skip_to_semi(cfile);
-					continue;
-				}
-				valid = atoi (val);
-				break;
-
-				/* Lease expiration time. */
-			      case ENDS:
-				end_time = parse_date(cfile);
-				break;
-
-				/* Lease binding scopes. */
-			      case TOKEN_SET:
-				token = next_token(&val, NULL, cfile);
-				if ((token != NAME) &&
-				    (token != NUMBER_OR_NAME)) {
-					parse_warn(cfile, "%s is not a valid "
-							  "variable name",
-						   val);
-					skip_to_semi(cfile);
-					continue;
-				}
-
-				if (scope != NULL)
-					bnd = find_binding(scope, val);
-				else {
-					if (!binding_scope_allocate(&scope,
-								    MDL)) {
-						log_fatal("Out of memory for "
-							  "lease binding "
-							  "scope.");
-					}
-
-					bnd = NULL;
-				}
-
-				if (bnd == NULL) {
-					bnd = dmalloc(sizeof(*bnd),
-							  MDL);
-					if (bnd == NULL) {
-						log_fatal("No memory for "
-							  "lease binding.");
-					}
-
-					bnd->name = dmalloc(strlen(val) + 1,
-							    MDL);
-					if (bnd->name == NULL) {
-						log_fatal("No memory for "
-							  "binding name.");
-					}
-					strcpy(bnd->name, val);
-
-					newbinding = ISC_TRUE;
-				} else {
-					newbinding = ISC_FALSE;
-				}
-
-				if (!binding_value_allocate(&nv, MDL)) {
-					log_fatal("no memory for binding "
-						  "value.");
-				}
-
-				token = next_token(NULL, NULL, cfile);
-				if (token != EQUAL) {
-					parse_warn(cfile, "expecting '=' in "
-							  "set statement.");
-					goto binding_err;
-				}
-
-				if (!parse_binding_value(cfile, nv)) {
-				      binding_err:
-					binding_value_dereference(&nv, MDL);
-					binding_scope_dereference(&scope, MDL);
-					return;
-				}
-
-				if (newbinding) {
-					binding_value_reference(&bnd->value,
-								nv, MDL);
-					bnd->next = scope->bindings;
-					scope->bindings = bnd;
-				} else {
-					binding_value_dereference(&bnd->value,
-								  MDL);
-					binding_value_reference(&bnd->value,
-								nv, MDL);
-				}
-
-				binding_value_dereference(&nv, MDL);
-				parse_semi(cfile);
-				break;
-
-			      default:
-				parse_warn(cfile, "corrupt lease file; "
-						  "expecting ia_ta contents, "
-						  "got '%s'", val);
-				skip_to_semi(cfile);
-				continue;
-			}
-		}
-
-		if (state == FTS_LAST+1) {
-			parse_warn(cfile, "corrupt lease file; "
-					  "missing state in iaaddr");
-			return;
-		}
-		if (end_time == -1) {
-			parse_warn(cfile, "corrupt lease file; "
-					  "missing end time in iaaddr");
-			return;
-		}
-
-		iaaddr = NULL;
-		if (iasubopt_allocate(&iaaddr, MDL) != ISC_R_SUCCESS) {
-			log_fatal("Out of memory.");
-		}
-		memcpy(&iaaddr->addr, iaddr.iabuf, sizeof(iaaddr->addr));
-		iaaddr->plen = 0;
-		iaaddr->state = state;
-		iaaddr->prefer = prefer;
-		iaaddr->valid = valid;
-		if (iaaddr->state == FTS_RELEASED)
-			iaaddr->hard_lifetime_end_time = end_time;
-
-		if (scope != NULL) {
-			binding_scope_reference(&iaaddr->scope, scope, MDL);
-			binding_scope_dereference(&scope, MDL);
-		}
-
-		/* add to our various structures */
-		ia_add_iasubopt(ia, iaaddr, MDL);
-		ia_reference(&iaaddr->ia, ia, MDL);
-		pool = NULL;
-		if (find_ipv6_pool(&pool, D6O_IA_TA,
-				   &iaaddr->addr) != ISC_R_SUCCESS) {
-			inet_ntop(AF_INET6, &iaaddr->addr,
-				  addr_buf, sizeof(addr_buf));
-			parse_warn(cfile, "no pool found for address %s", 
-				   addr_buf);
-			return;
-		}
-		add_lease6(pool, iaaddr, end_time);
-		ipv6_pool_dereference(&pool, MDL);
-		iasubopt_dereference(&iaaddr, MDL);
-	}
-
-	/*
-	 * If we have an existing record for this IA_TA, remove it.
-	 */
-	old_ia = NULL;
-	if (ia_hash_lookup(&old_ia, ia_ta_active,
-			   (unsigned char *)ia->iaid_duid.data,
-			   ia->iaid_duid.len, MDL)) {
-		ia_hash_delete(ia_ta_active, 
-			       (unsigned char *)ia->iaid_duid.data,
-			       ia->iaid_duid.len, MDL);
-		ia_dereference(&old_ia, MDL);
-	}
-
-	/*
-	 * If we have addresses, add this, otherwise don't bother.
-	 */
-	if (ia->num_iasubopt > 0) {
-		ia_hash_add(ia_ta_active, 
-			    (unsigned char *)ia->iaid_duid.data,
-			    ia->iaid_duid.len, ia, MDL);
-	}
-	ia_dereference(&ia, MDL);
-#endif /* defined(DHCPv6) */
-}
-
-void
-parse_ia_pd_declaration(struct parse *cfile) {
-#if !defined(DHCPv6)
-	parse_warn(cfile, "No DHCPv6 support.");
-	skip_to_semi(cfile);
-#else /* defined(DHCPv6) */
-	enum dhcp_token token;
-	struct ia_xx *ia;
-	const char *val;
-	struct ia_xx *old_ia;
-	unsigned int len;
-	u_int32_t iaid;
-	struct iaddr iaddr;
-	u_int8_t plen;
-	binding_state_t state;
-	u_int32_t prefer;
-	u_int32_t valid;
-	TIME end_time;
-	struct iasubopt *iapref;
-	struct ipv6_pool *pool;
-	char addr_buf[sizeof("ffff:ffff:ffff:ffff:ffff:ffff:255.255.255.255")];
-	isc_boolean_t newbinding;
-	struct binding_scope *scope=NULL;
-	struct binding *bnd;
-	struct binding_value *nv=NULL;
-
-        if (local_family != AF_INET6) {
-                parse_warn(cfile, "IA_PD is only supported in DHCPv6 mode.");
-                skip_to_semi(cfile);
-                return;
-        }
-
-	token = next_token(&val, &len, cfile);
-	if (token != STRING) {
-		parse_warn(cfile, "corrupt lease file; "
-				  "expecting an iaid+ia_pd string");
-		skip_to_semi(cfile);
-		return;
-	}
-	if (len < 5) {
-		parse_warn(cfile, "corrupt lease file; "
-				  "iaid+ia_pd string too short");
-		skip_to_semi(cfile);
-		return;
-	}
-
-	memcpy(&iaid, val, 4);
-	ia = NULL;
-	if (ia_allocate(&ia, iaid, val+4, len-4, MDL) != ISC_R_SUCCESS) {
-		log_fatal("Out of memory.");
-	}
-	ia->ia_type = D6O_IA_PD;
-
-	token = next_token(&val, NULL, cfile);
-	if (token != LBRACE) {
-		parse_warn(cfile, "corrupt lease file; expecting left brace");
-		skip_to_semi(cfile);
-		return;
-	}
-
-	for (;;) {
-		token = next_token(&val, NULL, cfile);
-		if (token == RBRACE) break;
-
-		if (token == CLTT) {
-			ia->cltt = parse_date (cfile);
-			continue;
-		}
-
-		if (token != IAPREFIX) {
-			parse_warn(cfile, "corrupt lease file; expecting "
-				   "IAPREFIX or right brace");
-			skip_to_semi(cfile);
-			return;
-		}
-
-		if (!parse_ip6_prefix(cfile, &iaddr, &plen)) {
-			parse_warn(cfile, "corrupt lease file; "
-					  "expecting IPv6 prefix");
-			skip_to_semi(cfile);
-			return;
-		}
-
-		token = next_token(&val, NULL, cfile);
-		if (token != LBRACE) {
-			parse_warn(cfile, "corrupt lease file; "
-					  "expecting left brace");
-			skip_to_semi(cfile);
-			return;
-		}
-
-		state = FTS_LAST+1;
-		prefer = valid = 0;
-		end_time = -1;
-		for (;;) {
-			token = next_token(&val, NULL, cfile);
-			if (token == RBRACE) break;
-
-			switch(token) {
-				/* Prefix binding state. */
-			     case BINDING:
-				token = next_token(&val, NULL, cfile);
-				if (token != STATE) {
-					parse_warn(cfile, "corrupt lease file; "
-							  "expecting state");
-					skip_to_semi(cfile);
-					return;
-				}
-				token = next_token(&val, NULL, cfile);
-				switch (token) {
-					case TOKEN_ABANDONED:
-						state = FTS_ABANDONED;
-						break;
-					case TOKEN_FREE:
-						state = FTS_FREE;
-						break;
-					case TOKEN_ACTIVE:
-						state = FTS_ACTIVE;
-						break;
-					case TOKEN_EXPIRED:
-						state = FTS_EXPIRED;
-						break;
-					case TOKEN_RELEASED:
-						state = FTS_RELEASED;
-						break;
-					default:
-						parse_warn(cfile,
-							   "corrupt lease "
-							   "file; "
-					    		   "expecting a "
-							   "binding state.");
-						skip_to_semi(cfile);
-						return;
-				}
-
-				token = next_token(&val, NULL, cfile);
-				if (token != SEMI) {
-					parse_warn(cfile, "corrupt lease file; "
-							  "expecting "
-							  "semicolon.");
-				}
-				break;
-
-				/* Lease preferred lifetime. */
-			      case PREFERRED_LIFE:
-				token = next_token(&val, NULL, cfile);
-				if (token != NUMBER) {
-					parse_warn(cfile, "%s is not a valid "
-							  "preferred time",
-						   val);
-					skip_to_semi(cfile);
-					continue;
-				}
-				prefer = atoi (val);
-				break;
-
-				/* Lease valid lifetime. */
-			      case MAX_LIFE:
-				token = next_token(&val, NULL, cfile);
-				if (token != NUMBER) {
-					parse_warn(cfile, "%s is not a valid "
-							  "max time",
-						   val);
-					skip_to_semi(cfile);
-					continue;
-				}
-				valid = atoi (val);
-				break;
-
-				/* Prefix expiration time. */
-			      case ENDS:
-				end_time = parse_date(cfile);
-				break;
-
-				/* Prefix binding scopes. */
-			      case TOKEN_SET:
-				token = next_token(&val, NULL, cfile);
-				if ((token != NAME) &&
-				    (token != NUMBER_OR_NAME)) {
-					parse_warn(cfile, "%s is not a valid "
-							  "variable name",
-						   val);
-					skip_to_semi(cfile);
-					continue;
-				}
-
-				if (scope != NULL)
-					bnd = find_binding(scope, val);
-				else {
-					if (!binding_scope_allocate(&scope,
-								    MDL)) {
-						log_fatal("Out of memory for "
-							  "lease binding "
-							  "scope.");
-					}
-
-					bnd = NULL;
-				}
-
-				if (bnd == NULL) {
-					bnd = dmalloc(sizeof(*bnd),
-							  MDL);
-					if (bnd == NULL) {
-						log_fatal("No memory for "
-							  "prefix binding.");
-					}
-
-					bnd->name = dmalloc(strlen(val) + 1,
-							    MDL);
-					if (bnd->name == NULL) {
-						log_fatal("No memory for "
-							  "binding name.");
-					}
-					strcpy(bnd->name, val);
-
-					newbinding = ISC_TRUE;
-				} else {
-					newbinding = ISC_FALSE;
-				}
-
-				if (!binding_value_allocate(&nv, MDL)) {
-					log_fatal("no memory for binding "
-						  "value.");
-				}
-
-				token = next_token(NULL, NULL, cfile);
-				if (token != EQUAL) {
-					parse_warn(cfile, "expecting '=' in "
-							  "set statement.");
-					goto binding_err;
-				}
-
-				if (!parse_binding_value(cfile, nv)) {
-				      binding_err:
-					binding_value_dereference(&nv, MDL);
-					binding_scope_dereference(&scope, MDL);
-					return;
-				}
-
-				if (newbinding) {
-					binding_value_reference(&bnd->value,
-								nv, MDL);
-					bnd->next = scope->bindings;
-					scope->bindings = bnd;
-				} else {
-					binding_value_dereference(&bnd->value,
-								  MDL);
-					binding_value_reference(&bnd->value,
-								nv, MDL);
-				}
-
-				binding_value_dereference(&nv, MDL);
-				parse_semi(cfile);
-				break;
-
-			      default:
-				parse_warn(cfile, "corrupt lease file; "
-						  "expecting ia_pd contents, "
-						  "got '%s'", val);
-				skip_to_semi(cfile);
-				continue;
-			}
-		}
-
-		if (state == FTS_LAST+1) {
-			parse_warn(cfile, "corrupt lease file; "
-					  "missing state in iaprefix");
-			return;
-		}
-		if (end_time == -1) {
-			parse_warn(cfile, "corrupt lease file; "
-					  "missing end time in iaprefix");
-			return;
-		}
-
-		iapref = NULL;
-		if (iasubopt_allocate(&iapref, MDL) != ISC_R_SUCCESS) {
-			log_fatal("Out of memory.");
-		}
-		memcpy(&iapref->addr, iaddr.iabuf, sizeof(iapref->addr));
-		iapref->plen = plen;
-		iapref->state = state;
-		iapref->prefer = prefer;
-		iapref->valid = valid;
-		if (iapref->state == FTS_RELEASED)
-			iapref->hard_lifetime_end_time = end_time;
-
-		if (scope != NULL) {
-			binding_scope_reference(&iapref->scope, scope, MDL);
-			binding_scope_dereference(&scope, MDL);
-		}
-
-		/* add to our various structures */
-		ia_add_iasubopt(ia, iapref, MDL);
-		ia_reference(&iapref->ia, ia, MDL);
-		pool = NULL;
-		if (find_ipv6_pool(&pool, D6O_IA_PD,
-				   &iapref->addr) != ISC_R_SUCCESS) {
-			inet_ntop(AF_INET6, &iapref->addr,
-				  addr_buf, sizeof(addr_buf));
-			parse_warn(cfile, "no pool found for address %s", 
-				   addr_buf);
-			return;
-		}
-		add_lease6(pool, iapref, end_time);
-		ipv6_pool_dereference(&pool, MDL);
-		iasubopt_dereference(&iapref, MDL);
-	}
-
-	/*
-	 * If we have an existing record for this IA_PD, remove it.
-	 */
-	old_ia = NULL;
-	if (ia_hash_lookup(&old_ia, ia_pd_active,
-			   (unsigned char *)ia->iaid_duid.data,
-			   ia->iaid_duid.len, MDL)) {
-		ia_hash_delete(ia_pd_active,
-			       (unsigned char *)ia->iaid_duid.data,
-			       ia->iaid_duid.len, MDL);
-		ia_dereference(&old_ia, MDL);
-	}
-
-	/*
-	 * If we have prefixes, add this, otherwise don't bother.
-	 */
-	if (ia->num_iasubopt > 0) {
-		ia_hash_add(ia_pd_active, 
-			    (unsigned char *)ia->iaid_duid.data,
-			    ia->iaid_duid.len, ia, MDL);
-	}
-	ia_dereference(&ia, MDL);
-#endif /* defined(DHCPv6) */
-}
-
-#ifdef DHCPv6 
-/*
- * When we parse a server-duid statement in a lease file, we are 
- * looking at the saved server DUID from a previous run. In this case
- * we expect it to be followed by the binary representation of the
- * DUID stored in a string:
- *
- * server-duid "\000\001\000\001\015\221\034JRT\000\0224Y";
- */
-void 
-parse_server_duid(struct parse *cfile) {
-	enum dhcp_token token;
-	const char *val;
-	unsigned int len;
-	struct data_string duid;
-
-	token = next_token(&val, &len, cfile);
-	if (token != STRING) {
-		parse_warn(cfile, "corrupt lease file; expecting a DUID");
-		skip_to_semi(cfile);
-		return;
-	}
-
-	memset(&duid, 0, sizeof(duid));
-	duid.len = len;
-	if (!buffer_allocate(&duid.buffer, duid.len, MDL)) {
-		log_fatal("Out of memory storing DUID");
-	}
-	duid.data = (unsigned char *)duid.buffer->data;
-	memcpy(duid.buffer->data, val, len);
-
-	set_server_duid(&duid);
-
-	data_string_forget(&duid, MDL);
-
-	token = next_token(&val, &len, cfile);
-	if (token != SEMI) {
-		parse_warn(cfile, "corrupt lease file; expecting a semicolon");
-		skip_to_semi(cfile);
-		return;
-	}
-}
-
-/*
- * When we parse a server-duid statement in a config file, we will
- * have the type of the server DUID to generate, and possibly the
- * actual value defined.
- *
- * server-duid llt;
- * server-duid llt ethernet|ieee802|fddi 213982198 00:16:6F:49:7D:9B;
- * server-duid ll;
- * server-duid ll ethernet|ieee802|fddi 00:16:6F:49:7D:9B;
- * server-duid en 2495 "enterprise-specific-identifier-1234";
- */
-void 
-parse_server_duid_conf(struct parse *cfile) {
-	enum dhcp_token token;
-	const char *val;
-	unsigned int len;
-	u_int32_t enterprise_number;
-	int ll_type;
-	struct data_string ll_addr;
-	u_int32_t llt_time;
-	struct data_string duid;
-	int duid_type_num;
-
-	/*
-	 * Consume the SERVER_DUID token.
-	 */
-	token = next_token(NULL, NULL, cfile);
-
-	/*
-	 * Obtain the DUID type.
-	 */
-	token = next_token(&val, NULL, cfile);
-
-	/* 
-	 * Enterprise is the easiest - enterprise number and raw data
-	 * are required.
-	 */
-	if (token == EN) {
-		/*
-		 * Get enterprise number and identifier.
-		 */
-		token = next_token(&val, NULL, cfile);
-		if (token != NUMBER) {
-			parse_warn(cfile, "enterprise number expected");
-			skip_to_semi(cfile);
-			return;
-		}
-		enterprise_number = atoi(val);
-
-		token = next_token(&val, &len, cfile);
-		if (token != STRING) {
-			parse_warn(cfile, "identifier expected");
-			skip_to_semi(cfile);
-			return;
-		}
-
-		/*
-		 * Save the DUID.
-		 */
-		memset(&duid, 0, sizeof(duid));
-        	duid.len = 2 + 4 + len;
-        	if (!buffer_allocate(&duid.buffer, duid.len, MDL)) {
-			log_fatal("Out of memory storing DUID");
-		}
-		duid.data = (unsigned char *)duid.buffer->data;
-		putUShort(duid.buffer->data, DUID_EN);
- 		putULong(duid.buffer->data + 2, enterprise_number);
-		memcpy(duid.buffer->data + 6, val, len);
-
-		set_server_duid(&duid);
-		data_string_forget(&duid, MDL);
-	}
-
-	/* 
-	 * Next easiest is the link-layer DUID. It consists only of
-	 * the LL directive, or optionally the specific value to use.
-	 *
-	 * If we have LL only, then we set the type. If we have the
-	 * value, then we set the actual DUID.
-	 */
-	else if (token == LL) {
-		if (peek_token(NULL, NULL, cfile) == SEMI) {
-			set_server_duid_type(DUID_LL);
-		} else {
-			/*
-			 * Get our hardware type and address.
-			 */
-			token = next_token(NULL, NULL, cfile);
-			switch (token) {
-			      case ETHERNET:
-				ll_type = HTYPE_ETHER;
-				break;
-			      case TOKEN_RING:
-				ll_type = HTYPE_IEEE802;
-				break;
-			      case TOKEN_FDDI:
-				ll_type = HTYPE_FDDI;
-				break;
-			      default:
-				parse_warn(cfile, "hardware type expected");
-				skip_to_semi(cfile);
-				return;
-			} 
-			memset(&ll_addr, 0, sizeof(ll_addr));
-			if (!parse_cshl(&ll_addr, cfile)) {
-				return;
-			}
-
-			/*
-			 * Save the DUID.
-			 */
-			memset(&duid, 0, sizeof(duid));
-			duid.len = 2 + 2 + ll_addr.len;
-        		if (!buffer_allocate(&duid.buffer, duid.len, MDL)) {
-				log_fatal("Out of memory storing DUID");
-			}
-			duid.data = (unsigned char *)duid.buffer->data;
-			putUShort(duid.buffer->data, DUID_LL);
- 			putULong(duid.buffer->data + 2, ll_type);
-			memcpy(duid.buffer->data + 4, 
-			       ll_addr.data, ll_addr.len);
-
-			set_server_duid(&duid);
-			data_string_forget(&duid, MDL);
-			data_string_forget(&ll_addr, MDL);
-		}
-	}
-
-	/* 
-	 * Finally the link-layer DUID plus time. It consists only of
-	 * the LLT directive, or optionally the specific value to use.
-	 *
-	 * If we have LLT only, then we set the type. If we have the
-	 * value, then we set the actual DUID.
-	 */
-	else if (token == LLT) {
-		if (peek_token(NULL, NULL, cfile) == SEMI) {
-			set_server_duid_type(DUID_LLT);
-		} else {
-			/*
-			 * Get our hardware type, timestamp, and address.
-			 */
-			token = next_token(NULL, NULL, cfile);
-			switch (token) {
-			      case ETHERNET:
-				ll_type = HTYPE_ETHER;
-				break;
-			      case TOKEN_RING:
-				ll_type = HTYPE_IEEE802;
-				break;
-			      case TOKEN_FDDI:
-				ll_type = HTYPE_FDDI;
-				break;
-			      default:
-				parse_warn(cfile, "hardware type expected");
-				skip_to_semi(cfile);
-				return;
-			} 
-			
-			token = next_token(&val, NULL, cfile);
-			if (token != NUMBER) {
-				parse_warn(cfile, "timestamp expected");
-				skip_to_semi(cfile);
-				return;
-			}
-			llt_time = atoi(val);
-
-			memset(&ll_addr, 0, sizeof(ll_addr));
-			if (!parse_cshl(&ll_addr, cfile)) {
-				return;
-			}
-
-			/*
-			 * Save the DUID.
-			 */
-			memset(&duid, 0, sizeof(duid));
-			duid.len = 2 + 2 + 4 + ll_addr.len;
-        		if (!buffer_allocate(&duid.buffer, duid.len, MDL)) {
-				log_fatal("Out of memory storing DUID");
-			}
-			duid.data = (unsigned char *)duid.buffer->data;
-			putUShort(duid.buffer->data, DUID_LLT);
- 			putULong(duid.buffer->data + 2, ll_type);
- 			putULong(duid.buffer->data + 4, llt_time);
-			memcpy(duid.buffer->data + 8, 
-			       ll_addr.data, ll_addr.len);
-
-			set_server_duid(&duid);
-			data_string_forget(&duid, MDL);
-			data_string_forget(&ll_addr, MDL);
-		}
-	}
-
-	/*
-	 * If users want they can use a number for DUID types.
-	 * This is useful for supporting future, not-yet-defined
-	 * DUID types.
-	 *
-	 * In this case, they have to put in the complete value.
-	 *
-	 * This also works for existing DUID types of course. 
-	 */
-	else if (token == NUMBER) {
-		duid_type_num = atoi(val);
-
-		token = next_token(&val, &len, cfile);
-		if (token != STRING) {
-			parse_warn(cfile, "identifier expected");
-			skip_to_semi(cfile);
-			return;
-		}
-
-		/*
-		 * Save the DUID.
-		 */
-		memset(&duid, 0, sizeof(duid));
-        	duid.len = 2 + len;
-        	if (!buffer_allocate(&duid.buffer, duid.len, MDL)) {
-			log_fatal("Out of memory storing DUID");
-		}
-		duid.data = (unsigned char *)duid.buffer->data;
-		putUShort(duid.buffer->data, duid_type_num);
-		memcpy(duid.buffer->data + 2, val, len);
-
-		set_server_duid(&duid);
-		data_string_forget(&duid, MDL);
-	}
-
-	/*
-	 * Anything else is an error.
-	 */
-	else {
-		parse_warn(cfile, "DUID type of LLT, EN, or LL expected");
-		skip_to_semi(cfile);
-		return;
-	}
-
-	/*
-	 * Finally consume our trailing semicolon.
-	 */
-	token = next_token(NULL, NULL, cfile);
-	if (token != SEMI) {
-		parse_warn(cfile, "semicolon expected");
-		skip_to_semi(cfile);
-	}
-}
-
-#endif /* DHCPv6 */
 

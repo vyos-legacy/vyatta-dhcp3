@@ -3,7 +3,7 @@
    Routines for manipulating hash tables... */
 
 /*
- * Copyright (c) 2004-2007 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2006 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1995-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -32,35 +32,24 @@
  * ``http://www.nominum.com''.
  */
 
-#include "dhcpd.h"
+#ifndef lint
+static char copyright[] =
+"$Id: hash.c,v 1.1.2.9 2006/02/22 22:43:27 dhankins Exp $ Copyright (c) 2004-2006 Internet Systems Consortium.  All rights reserved.\n";
+#endif /* not lint */
 
 #include <omapip/omapip_p.h>
-#include <limits.h>
 #include <ctype.h>
 
-static unsigned
-find_length(const void *key,
-	    unsigned (*do_hash)(const void *, unsigned, unsigned))
-{
-	if (do_hash == do_case_hash || do_hash == do_string_hash)
-		return strlen((const char *)key);
-	if (do_hash == do_number_hash)
-		return sizeof(unsigned);
-	if (do_hash == do_ip4_hash)
-		return 4;
-
-	log_fatal("Impossible condition at %s:%d.", MDL);
-	return 0; /* Silence compiler warnings. */
-}
+static int do_hash (const unsigned char *, unsigned, unsigned);
+static int do_case_hash (const unsigned char *, unsigned, unsigned);
 
 int new_hash_table (tp, count, file, line)
 	struct hash_table **tp;
-	unsigned count;
+	int count;
 	const char *file;
 	int line;
 {
 	struct hash_table *rval;
-	unsigned extra;
 
 	if (!tp) {
 		log_error ("%s(%d): new_hash_table called with null pointer.",
@@ -77,18 +66,9 @@ int new_hash_table (tp, count, file, line)
 		abort ();
 #endif
 	}
-
-	/* There is one hash bucket in the structure.  Allocate extra
-	 * memory beyond the end of the structure to fulfill the requested
-	 * count ("count - 1").  Do not let there be less than one.
-	 */
-	if (count <= 1)
-		extra = 0;
-	else
-		extra = count - 1;
-
-	rval = dmalloc(sizeof(struct hash_table) +
-		       (extra * sizeof(struct hash_bucket *)), file, line);
+	rval = dmalloc (sizeof (struct hash_table) -
+			(DEFAULT_HASH_SIZE * sizeof (struct hash_bucket *)) +
+			(count * sizeof (struct hash_bucket *)), file, line);
 	if (!rval)
 		return 0;
 	rval -> hash_count = count;
@@ -101,13 +81,12 @@ void free_hash_table (tp, file, line)
 	const char *file;
 	int line;
 {
+	int i;
+	struct hash_bucket *hbc, *hbn = (struct hash_bucket *)0;
 	struct hash_table *ptr = *tp;
 
 #if defined (DEBUG_MEMORY_LEAKAGE) || \
 		defined (DEBUG_MEMORY_LEAKAGE_ON_EXIT)
-	int i;
-	struct hash_bucket *hbc, *hbn = (struct hash_bucket *)0;
-
 	for (i = 0; i < ptr -> hash_count; i++) {
 	    for (hbc = ptr -> buckets [i]; hbc; hbc = hbn) {
 		hbn = hbc -> next;
@@ -122,7 +101,7 @@ void free_hash_table (tp, file, line)
 	}
 #endif
 
-	dfree((void *)ptr, MDL);
+	dfree ((VOIDPTR)ptr, MDL);
 	*tp = (struct hash_table *)0;
 }
 
@@ -196,9 +175,8 @@ void free_hash_bucket (ptr, file, line)
 	const char *file;
 	int line;
 {
-#if defined (DEBUG_MALLOC_POOL)
 	struct hash_bucket *hp;
-
+#if defined (DEBUG_MALLOC_POOL)
 	for (hp = free_hash_buckets; hp; hp = hp -> next) {
 		if (hp == ptr) {
 			log_error ("hash bucket freed twice!");
@@ -210,46 +188,42 @@ void free_hash_bucket (ptr, file, line)
 	free_hash_buckets = ptr;
 }
 
-int new_hash(struct hash_table **rp,
-	     hash_reference referencer,
-	     hash_dereference dereferencer,
-	     unsigned hsize,
-	     unsigned (*hasher)(const void *, unsigned, unsigned),
-	     const char *file, int line)
+int new_hash (struct hash_table **rp,
+	      hash_reference referencer,
+	      hash_dereference dereferencer,
+	      int casep, const char *file, int line)
 {
-	if (hsize == 0)
-		hsize = DEFAULT_HASH_SIZE;
-
-	if (!new_hash_table (rp, hsize, file, line))
+	if (!new_hash_table (rp, DEFAULT_HASH_SIZE, file, line))
 		return 0;
-
-	memset ((*rp)->buckets, 0, hsize * sizeof(struct hash_bucket *));
-
-	(*rp)->referencer = referencer;
-	(*rp)->dereferencer = dereferencer;
-	(*rp)->do_hash = hasher;
-
-	if (hasher == do_case_hash)
-		(*rp)->cmp = casecmp;
-	else
-		(*rp)->cmp = memcmp;
-
+	memset (&(*rp) -> buckets [0], 0,
+		DEFAULT_HASH_SIZE * sizeof (struct hash_bucket *));
+	(*rp) -> referencer = referencer;
+	(*rp) -> dereferencer = dereferencer;
+	if (casep) {
+		(*rp) -> cmp = casecmp;
+		(*rp) -> do_hash = do_case_hash;
+	} else {
+		(*rp) -> cmp = (hash_comparator_t)memcmp;
+		(*rp) -> do_hash = do_hash;
+	}
 	return 1;
 }
 
-unsigned
-do_case_hash(const void *name, unsigned len, unsigned size)
+static int do_case_hash (name, len, size)
+	const unsigned char *name;
+	unsigned len;
+	unsigned size;
 {
-	register unsigned accum = 0;
-	register const unsigned char *s = name;
+	register int accum = 0;
+	register const unsigned char *s = (const unsigned char *)name;
 	int i = len;
 	register unsigned c;
 
 	while (i--) {
 		/* Make the hash case-insensitive. */
 		c = *s++;
-		if (isascii(c))
-			c = tolower(c);
+		if (isascii (c) && isupper (c))
+			c = tolower (c);
 
 		/* Add the character in... */
 		accum = (accum << 1) + c;
@@ -258,15 +232,16 @@ do_case_hash(const void *name, unsigned len, unsigned size)
 		while (accum > 65535) {
 			accum = (accum & 65535) + (accum >> 16);
 		}
-
 	}
 	return accum % size;
 }
 
-unsigned
-do_string_hash(const void *name, unsigned len, unsigned size)
+static int do_hash (name, len, size)
+	const unsigned char *name;
+	unsigned len;
+	unsigned size;
 {
-	register unsigned accum = 0;
+	register int accum = 0;
 	register const unsigned char *s = (const unsigned char *)name;
 	int i = len;
 
@@ -282,118 +257,10 @@ do_string_hash(const void *name, unsigned len, unsigned size)
 	return accum % size;
 }
 
-/* Client identifiers are generally 32-bits of ordinary
- * non-randomness followed by 24-bits of unordinary randomness.
- * So, end-align in 24-bit chunks, and xor any preceding data
- * just to mix it up a little.
- */
-unsigned
-do_id_hash(const void *name, unsigned len, unsigned size)
-{
-	register unsigned accum = 0;
-	register const unsigned char *s = (const unsigned char *)name;
-	const unsigned char *end = s + len;
-
-	if (len == 0)
-		return 0;
-
-	/* The switch indexes our starting position into the do/while loop,
-	 * taking up the remainder after hashing in all the other bytes in
-	 * threes.
-	 */
-	switch (len % 3) {
-		do {
-	      case 0:
-			accum ^= *s++ << 16;
-	      case 2:
-			accum ^= *s++ << 8;
-	      case 1:
-			accum ^= *s++;
-		} while (s < end);
-
-		break;
-	}
-
-	return accum % size;
-}
-
-unsigned
-do_number_hash(const void *key, unsigned len, unsigned size)
-{
-	register unsigned number = *((const unsigned *)key);
-
-	return number % size;
-}
-
-unsigned
-do_ip4_hash(const void *key, unsigned len, unsigned size)
-{
-	u_int32_t number;
-
-	memcpy(&number, key, 4);
-
-	number = ntohl(number);
-
-	return number % size;
-}
-
-unsigned char *
-hash_report(struct hash_table *table)
-{
-	static unsigned char retbuf[sizeof("Contents/Size (%): "
-					   "2147483647/2147483647 "
-					   "(2147483647%). "
-					   "Min/max: 2147483647/2147483647")];
-	unsigned curlen, pct, contents=0, minlen=UINT_MAX, maxlen=0;
-	unsigned i;
-	struct hash_bucket *bp;
-
-	if (table == NULL)
-		return (unsigned char *) "No table.";
-
-	if (table->hash_count == 0)
-		return (unsigned char *) "Invalid hash table.";
-
-	for (i = 0 ; i < table->hash_count ; i++) {
-		curlen = 0;
-
-		bp = table->buckets[i];
-		while (bp != NULL) {
-			curlen++;
-			bp = bp->next;
-		}
-
-		if (curlen < minlen)
-			minlen = curlen;
-		if (curlen > maxlen)
-			maxlen = curlen;
-
-		contents += curlen;
-	}
-
-	if (contents >= (UINT_MAX / 100))
-		pct = contents / ((table->hash_count / 100) + 1);
-	else
-		pct = (contents * 100) / table->hash_count;
-
-	if (contents > 2147483647 ||
-	    table->hash_count > 2147483647 ||
-	    pct > 2147483647 ||
-	    minlen > 2147483647 ||
-	    maxlen > 2147483647)
-		return (unsigned char *) "Report out of range for display.";
-
-	sprintf((char *)retbuf, 
-		"Contents/Size (%%): %u/%u (%u%%). Min/max: %u/%u",
-		contents, table->hash_count, pct, minlen, maxlen);
-
-	return retbuf;
-}
-
-void add_hash (table, key, len, pointer, file, line)
+void add_hash (table, name, len, pointer, file, line)
 	struct hash_table *table;
 	unsigned len;
-	const void *key;
+	const unsigned char *name;
 	hashed_object_t *pointer;
 	const char *file;
 	int line;
@@ -406,16 +273,16 @@ void add_hash (table, key, len, pointer, file, line)
 		return;
 
 	if (!len)
-		len = find_length(key, table->do_hash);
+		len = strlen ((const char *)name);
 
-	hashno = (*table->do_hash)(key, len, table->hash_count);
+	hashno = (*table -> do_hash) (name, len, table -> hash_count);
 	bp = new_hash_bucket (file, line);
 
 	if (!bp) {
-		log_error ("Can't add entry to hash table: no memory.");
+		log_error ("Can't add %s to hash table.", name);
 		return;
 	}
-	bp -> name = key;
+	bp -> name = name;
 	if (table -> referencer) {
 		foo = &bp -> value;
 		(*(table -> referencer)) (foo, pointer, file, line);
@@ -426,10 +293,10 @@ void add_hash (table, key, len, pointer, file, line)
 	table -> buckets [hashno] = bp;
 }
 
-void delete_hash_entry (table, key, len, file, line)
+void delete_hash_entry (table, name, len, file, line)
 	struct hash_table *table;
 	unsigned len;
-	const void *key;
+	const unsigned char *name;
 	const char *file;
 	int line;
 {
@@ -441,17 +308,17 @@ void delete_hash_entry (table, key, len, file, line)
 		return;
 
 	if (!len)
-		len = find_length(key, table->do_hash);
+		len = strlen ((const char *)name);
 
-	hashno = (*table->do_hash)(key, len, table->hash_count);
+	hashno = (*table -> do_hash) (name, len, table -> hash_count);
 
 	/* Go through the list looking for an entry that matches;
 	   if we find it, delete it. */
 	for (bp = table -> buckets [hashno]; bp; bp = bp -> next) {
 		if ((!bp -> len &&
-		     !strcmp ((const char *)bp->name, key)) ||
+		     !strcmp ((const char *)bp -> name, (const char *)name)) ||
 		    (bp -> len == len &&
-		     !(table -> cmp)(bp->name, key, len))) {
+		     !(*table -> cmp) (bp -> name, name, len))) {
 			if (pbp) {
 				pbp -> next = bp -> next;
 			} else {
@@ -468,10 +335,10 @@ void delete_hash_entry (table, key, len, file, line)
 	}
 }
 
-int hash_lookup (vp, table, key, len, file, line)
+int hash_lookup (vp, table, name, len, file, line)
 	hashed_object_t **vp;
 	struct hash_table *table;
-	const void *key;
+	const unsigned char *name;
 	unsigned len;
 	const char *file;
 	int line;
@@ -482,18 +349,13 @@ int hash_lookup (vp, table, key, len, file, line)
 	if (!table)
 		return 0;
 	if (!len)
-		len = find_length(key, table->do_hash);
+		len = strlen ((const char *)name);
 
-	if (*vp != NULL) {
-		log_fatal("Internal inconsistency: storage value has not been "
-			  "initialized to zero (from %s:%d).", file, line);
-	}
-
-	hashno = (*table->do_hash)(key, len, table->hash_count);
+	hashno = (*table -> do_hash) (name, len, table -> hash_count);
 
 	for (bp = table -> buckets [hashno]; bp; bp = bp -> next) {
 		if (len == bp -> len
-		    && !(*table->cmp)(bp->name, key, len)) {
+		    && !(*table -> cmp) (bp -> name, name, len)) {
 			if (table -> referencer)
 				(*table -> referencer) (vp, bp -> value,
 							file, line);
@@ -518,9 +380,7 @@ int hash_foreach (struct hash_table *table, hash_foreach_func func)
 		bp = table -> buckets [i];
 		while (bp) {
 			next = bp -> next;
-			if ((*func)(bp->name, bp->len, bp->value)
-							!= ISC_R_SUCCESS)
-				return count;
+			(*func) (bp -> name, bp -> len, bp -> value);
 			bp = next;
 			count++;
 		}
@@ -528,25 +388,25 @@ int hash_foreach (struct hash_table *table, hash_foreach_func func)
 	return count;
 }
 
-int casecmp (const void *v1, const void *v2, size_t len)
+int casecmp (const void *v1, const void *v2, unsigned long len)
 {
-	size_t i;
-	const unsigned char *s = v1;
-	const unsigned char *t = v2;
+	unsigned i;
+	const char *s = v1;
+	const char *t = v2;
 	
 	for (i = 0; i < len; i++)
 	{
 		int c1, c2;
-		if (isascii(s[i]))
-			c1 = tolower(s[i]);
+		if (isascii (s [i]) && isupper (s [i]))
+			c1 = tolower (s [i]);
 		else
-			c1 = s[i];
-
-		if (isascii(t[i]))
-			c2 = tolower(t[i]);
+			c1 = s [i];
+		
+		if (isascii (t [i]) && isupper (t [i]))
+			c2 = tolower (t [i]);
 		else
-			c2 = t[i];
-
+			c2 = t [i];
+		
 		if (c1 < c2)
 			return -1;
 		if (c1 > c2)

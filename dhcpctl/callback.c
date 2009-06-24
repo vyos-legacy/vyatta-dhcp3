@@ -3,7 +3,7 @@
    The dhcpctl callback object. */
 
 /*
- * Copyright (c) 2004,2007 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1999-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -32,7 +32,11 @@
  * ``http://www.nominum.com''.
  */
 
-#include "dhcpd.h"
+#ifndef lint
+static char copyright[] =
+"$Id: callback.c,v 1.5.2.2 2004/06/10 17:59:23 dhankins Exp $ Copyright (c) 2004 Internet Systems Consortium.  All rights reserved.\n";
+#endif /* not lint */
+
 #include <omapip/omapip_p.h>
 #include "dhcpctl.h"
 
@@ -55,6 +59,7 @@ dhcpctl_status dhcpctl_set_callback (dhcpctl_handle h, void *data,
 {
 	dhcpctl_callback_object_t *callback;
 	omapi_object_t *inner;
+	isc_result_t status;
 
 	callback = dmalloc (sizeof *callback, MDL);
 	if (!callback)
@@ -157,6 +162,8 @@ isc_result_t dhcpctl_callback_stuff_values (omapi_object_t *c,
 					    omapi_object_t *id,
 					    omapi_object_t *p)
 {
+	int i;
+
 	if (p -> type != dhcpctl_callback_type)
 		return ISC_R_INVALIDARG;
 

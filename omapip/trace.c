@@ -32,9 +32,12 @@
  * learn more about Nominum, Inc., see ``http://www.nominum.com''.
  */
 
-#include "dhcpd.h"
+#ifndef lint
+static char ocopyright[] =
+"$Id: trace.c,v 1.9.2.10 2007/05/01 20:42:56 each Exp $ Copyright 2004-2006 Internet Systems Consortium.";
+#endif
+
 #include <omapip/omapip_p.h>
-#include <errno.h>
 
 #if defined (TRACING)
 void (*trace_set_time_hook) (TIME);
@@ -316,7 +319,7 @@ trace_type_t *trace_type_register (const char *name,
 				   void (*stop_tracing) (trace_type_t *),
 				   const char *file, int line)
 {
-	trace_type_t *ttmp;
+	trace_type_t *ttmp, *tptr;
 	unsigned slen = strlen (name);
 	isc_result_t status;
 
@@ -515,6 +518,7 @@ isc_result_t trace_get_next_packet (trace_type_t **ttp,
 	trace_type_t *ttype;
 	unsigned paylen;
 	int status;
+	int len;
 	fpos_t curpos;
 
 	status = fgetpos (traceinfile, &curpos);
@@ -640,6 +644,7 @@ time_t trace_snoop_time (trace_type_t **ptp)
 	unsigned bufmax = 0;
 	unsigned buflen = 0;
 	char *buf = (char *)0;
+	isc_result_t status;
 	time_t result;
 	trace_type_t *ttp;
 	

@@ -1,9 +1,9 @@
 #if !defined(lint) && !defined(SABER)
-static const char rcsid[] = "$Id: res_update.c,v 1.15 2007/09/05 17:32:10 dhankins Exp $";
+static const char rcsid[] = "$Id: res_update.c,v 1.11.2.3 2004/06/10 17:59:44 dhankins Exp $";
 #endif /* not lint */
 
 /*
- * Copyright (c) 2004,2007 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1996-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -88,7 +88,7 @@ res_nupdate(res_state statp, ns_updrec *rrecp_in) {
 	double answer[PACKETSZ / sizeof (double)];
 	double packet[2*PACKETSZ / sizeof (double)];
 	struct zonegrp *zptr, tgrp;
-	int nscount = 0;
+	int nzones = 0, nscount = 0;
 	unsigned n;
 	unsigned rval;
 	struct sockaddr_in nsaddrs[MAXNS];

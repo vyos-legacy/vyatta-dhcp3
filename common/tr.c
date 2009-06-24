@@ -26,6 +26,11 @@
  *   http://www.isc.org/
  */
 
+#ifndef lint
+static char copyright[] =
+"$Id: tr.c,v 1.7.2.5 2007/05/01 20:42:56 each Exp $ Copyright (c) 2004-2005 Internet Systems Consortium.  All rights reserved.\n";
+#endif /* not lint */
+
 #include "dhcpd.h"
 
 #if defined (HAVE_TR_SUPPORT) && \

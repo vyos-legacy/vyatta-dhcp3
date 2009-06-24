@@ -35,20 +35,15 @@
 #ifndef OMAPI_HASH_H
 #define OMAPI_HASH_H
 
-#if !defined (DEFAULT_HASH_SIZE)
-# define DEFAULT_HASH_SIZE	9973
-#endif
-
-#if !defined (KEY_HASH_SIZE)
-# define KEY_HASH_SIZE		1009
-#endif
+#define DEFAULT_HASH_SIZE	9973
 
 /* The purpose of the hashed_object_t struct is to not match anything else. */
 typedef struct {
 	int foo;
 } hashed_object_t;
 
-typedef isc_result_t (*hash_foreach_func)(const void *, unsigned, void *);
+typedef void (*hash_foreach_func) (const unsigned char *,
+				   unsigned, hashed_object_t *);
 typedef int (*hash_reference) (hashed_object_t **, hashed_object_t *,
 			       const char *, int);
 typedef int (*hash_dereference) (hashed_object_t **, const char *, int);
@@ -60,17 +55,15 @@ struct hash_bucket {
 	hashed_object_t *value;
 };
 
-typedef int (*hash_comparator_t)(const void *, const void *, size_t);
+typedef int (*hash_comparator_t)(const void *, const void *, unsigned long);
 
 struct hash_table {
 	unsigned hash_count;
+	struct hash_bucket *buckets [DEFAULT_HASH_SIZE];
 	hash_reference referencer;
 	hash_dereference dereferencer;
 	hash_comparator_t cmp;
-	unsigned (*do_hash)(const void *, unsigned, unsigned);
-
-	/* This must remain the last entry in this table. */
-	struct hash_bucket *buckets [1];
+	int (*do_hash) (const unsigned char *, unsigned, unsigned);
 };
 
 struct named_hash {
@@ -86,26 +79,28 @@ void name##_hash_delete (hashtype *, bufarg, unsigned,			      \
 			 const char *, int);				      \
 int name##_hash_lookup (type **, hashtype *, bufarg, unsigned,		      \
 			const char *, int);				      \
-unsigned char * name##_hash_report(hashtype *);				      \
-int name##_hash_foreach (hashtype *, hash_foreach_func);		      \
-int name##_new_hash (hashtype **, unsigned, const char *, int);		      \
+int name##_hash_foreach (hashtype *,					      \
+			 void (*) (bufarg, unsigned, type *));		      \
+int name##_new_hash (hashtype **, int, const char *, int);		      \
 void name##_free_hash_table (hashtype **, const char *, int);
 
 
-#define HASH_FUNCTIONS(name, bufarg, type, hashtype, ref, deref, hasher)      \
+#define HASH_FUNCTIONS(name, bufarg, type, hashtype, ref, deref)	      \
 void name##_hash_add (hashtype *table,					      \
 		      bufarg buf, unsigned len, type *ptr,		      \
 		      const char *file, int line)			      \
 {									      \
-	add_hash ((struct hash_table *)table, buf,			      \
+	add_hash ((struct hash_table *)table,				      \
+		  (const unsigned char *)buf,				      \
 		  len, (hashed_object_t *)ptr, file, line);		      \
 }									      \
 									      \
-void name##_hash_delete (hashtype *table, bufarg buf, unsigned len,	      \
-			 const char *file, int line)			      \
+void name##_hash_delete (hashtype *table,				      \
+			 bufarg buf, unsigned len, const char *file, int line)\
 {									      \
-	delete_hash_entry ((struct hash_table *)table, buf, len,	      \
-			   file, line);					      \
+	delete_hash_entry ((struct hash_table *)table,			      \
+			   (const unsigned char *)buf,			      \
+			   len, file, line);				      \
 }									      \
 									      \
 int name##_hash_lookup (type **ptr, hashtype *table,			      \
@@ -113,25 +108,21 @@ int name##_hash_lookup (type **ptr, hashtype *table,			      \
 {									      \
 	return hash_lookup ((hashed_object_t **)ptr,			      \
 			    (struct hash_table *)table,			      \
-			    buf, len, file, line);			      \
+			    (const unsigned char *)buf, len, file, line);     \
 }									      \
 									      \
-unsigned char * name##_hash_report(hashtype *table)			      \
-{									      \
-	return hash_report((struct hash_table *)table);			      \
-}									      \
-									      \
-int name##_hash_foreach (hashtype *table, hash_foreach_func func)	      \
+int name##_hash_foreach (hashtype *table,				      \
+			 void (*func) (bufarg, unsigned, type *))	      \
 {									      \
 	return hash_foreach ((struct hash_table *)table,		      \
-			     func);					      \
+			     (hash_foreach_func)func);			      \
 }									      \
 									      \
-int name##_new_hash (hashtype **tp, unsigned c, const char *file, int line)   \
+int name##_new_hash (hashtype **tp, int c, const char *file, int line)	      \
 {									      \
 	return new_hash ((struct hash_table **)tp,			      \
 			 (hash_reference)ref, (hash_dereference)deref, c,     \
-			 hasher, file, line);				      \
+			 file, line);					      \
 }									      \
 									      \
 void name##_free_hash_table (hashtype **table, const char *file, int line)    \
@@ -140,28 +131,20 @@ void name##_free_hash_table (hashtype **table, const char *file, int line)    \
 }
 
 void relinquish_hash_bucket_hunks (void);
-int new_hash_table (struct hash_table **, unsigned, const char *, int);
+int new_hash_table (struct hash_table **, int, const char *, int);
 void free_hash_table (struct hash_table **, const char *, int);
 struct hash_bucket *new_hash_bucket (const char *, int);
 void free_hash_bucket (struct hash_bucket *, const char *, int);
-int new_hash(struct hash_table **,
-	     hash_reference, hash_dereference, unsigned,
-	     unsigned (*do_hash)(const void *, unsigned, unsigned),
-	     const char *, int);
-unsigned do_string_hash(const void *, unsigned, unsigned);
-unsigned do_case_hash(const void *, unsigned, unsigned);
-unsigned do_id_hash(const void *, unsigned, unsigned);
-unsigned do_number_hash(const void *, unsigned, unsigned);
-unsigned do_ip4_hash(const void *, unsigned, unsigned);
-unsigned char *hash_report(struct hash_table *);
+int new_hash (struct hash_table **,
+	      hash_reference, hash_dereference, int, const char *, int);
 void add_hash (struct hash_table *,
-		      const void *, unsigned, hashed_object_t *,
+		      const unsigned char *, unsigned, hashed_object_t *,
 		      const char *, int);
-void delete_hash_entry (struct hash_table *, const void *,
+void delete_hash_entry (struct hash_table *, const unsigned char *,
 			       unsigned, const char *, int);
 int hash_lookup (hashed_object_t **, struct hash_table *,
-			const void *, unsigned, const char *, int);
+			const unsigned char *, unsigned, const char *, int);
 int hash_foreach (struct hash_table *, hash_foreach_func);
-int casecmp (const void *s, const void *t, size_t len);
+int casecmp (const void *s, const void *t, unsigned long len);
 
 #endif /* OMAPI_HASH_H */

@@ -28,7 +28,7 @@
 .\" see ``http://www.vix.com''.   To learn more about Nominum, Inc., see
 .\" ``http://www.nominum.com''.
 .\"
-.\" $Id: dhcpd.8,v 1.29 2008/07/17 06:17:57 each Exp $
+.\" $Id: dhcpd.8,v 1.18.2.15 2007/05/01 20:42:56 each Exp $
 .\"
 .TH dhcpd 8
 .SH NAME
@@ -52,15 +52,6 @@ dhcpd - Dynamic Host Configuration Protocol Server
 .B -t
 |
 .B -T
-]
-[
-.B -4
-| 
-.B -6
-]
-[
-.B -s
-.I server
 ]
 [
 .B -cf
@@ -88,9 +79,6 @@ dhcpd - Dynamic Host Configuration Protocol Server
 .I ...ifN
 ]
 ]
-
-.B dhcpd
---version
 .SH DESCRIPTION
 The Internet Systems Consortium DHCP Server, dhcpd, implements the
 Dynamic Host Configuration Protocol (DHCP) and the Internet Bootstrap
@@ -187,24 +175,11 @@ are specified on the command line dhcpd will identify all network
 interfaces which are up, eliminating non-broadcast interfaces if
 possible, and listen for DHCP broadcasts on each interface.
 .PP
-The server either operates as a DHCPv6 server or a DHCP server, but
-not both at the same time. To run as a DHCPv6 server, use the
-.B -6
-flag. To run as a DHCP server, use the
-.B -4
-flag. If neither is used, the default is to run as a DHCPv6 server.
-.PP
 If dhcpd should listen on a port other than the standard (port 67),
 the
 .B -p
 flag may used.  It should be followed by the udp port number on which
 dhcpd should listen.  This is mostly useful for debugging purposes.
-.PP
-If dhcpd should send replies to an address other than the broadcast
-address (255.255.255.255), the 
-.B -s
-flag may be used. It is followed by either the IP address or the host 
-name to send replies to. This option is only supported in IPv4.
 .PP
 To run dhcpd as a foreground process, rather than allowing it to run
 as a daemon in the background, the
@@ -264,10 +239,6 @@ using the \fB-lf\fR switch, so that the DHCP server doesn't wipe out
 your existing lease file with its test data.  The DHCP server will
 refuse to operate in playback mode unless you specify an alternate
 lease file.
-.PP
-To find the version of dhcpd that will run, use the
-.B --version
-argument. Instead of running, the version will be printed.
 .SH CONFIGURATION
 The syntax of the dhcpd.conf(5) file is discussed separately.   This
 section should be used as an overview of the configuration process,
@@ -681,23 +652,18 @@ relationship.   Possible values for state are:
 .RS 1i
 .PP
 .nf
-1   - startup
-2   - normal
-3   - communications interrupted
-4   - partner down
-5   - potential conflict
-6   - recover
-7   - paused
-8   - shutdown
-9   - recover done
-10  - resolution interrupted
-11  - conflict done
-254 - recover wait
+1  - partner down
+2  - normal
+3  - communications interrupted
+4  - resolution interrupted
+5  - potential conflict
+6  - recover
+7  - recover done
+8  - shutdown
+9  - paused
+10 - startup
+11 - recover wait
 .fi
-.RE
-.PP
-.RS 0.5i
-(Note that some of the above values have changed since DHCP 3.0.x.)
 .RE
 .PP
 .RS 0.5i

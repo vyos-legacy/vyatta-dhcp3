@@ -1,4 +1,4 @@
-/* $Id: dhcpctl.h,v 1.16 2005/03/17 20:15:03 dhankins Exp $
+/* $Id: dhcpctl.h,v 1.13.2.4 2004/06/10 17:59:24 dhankins Exp $
 
    Subroutines providing general support for objects. */
 

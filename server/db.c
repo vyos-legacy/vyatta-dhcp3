@@ -3,7 +3,7 @@
    Persistent database management routines for DHCPD... */
 
 /*
- * Copyright (c) 2004-2008 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2005 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1995-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -32,12 +32,14 @@
  * ``http://www.nominum.com''.
  */
 
+#ifndef lint
+static char copyright[] =
+"$Id: db.c,v 1.63.2.15 2006/07/19 16:45:30 dhankins Exp $ Copyright (c) 2004-2005 Internet Systems Consortium.  All rights reserved.\n";
+#endif /* not lint */
+
 #include "dhcpd.h"
 #include <ctype.h>
-#include <errno.h>
-
-static isc_result_t write_binding_scope(FILE *db_file, struct binding *bnd,
-					char *prepend);
+#include "version.h"
 
 FILE *db_file;
 
@@ -46,67 +48,17 @@ static int count = 0;
 TIME write_time;
 int lease_file_is_corrupt = 0;
 
-/* Write a single binding scope value in parsable format.
- */
-
-static isc_result_t
-write_binding_scope(FILE *db_file, struct binding *bnd, char *prepend) {
-	char *s;
-
-	if ((db_file == NULL) || (bnd == NULL) || (prepend == NULL))
-		return ISC_R_INVALIDARG;
-
-	if (bnd->value->type == binding_data) {
-		if (bnd->value->value.data.data != NULL) {
-			s = quotify_buf(bnd->value->value.data.data,
-					bnd->value->value.data.len, MDL);
-			if (s != NULL) {
-				errno = 0;
-				fprintf(db_file, "%sset %s = \"%s\";",
-					prepend, bnd->name, s);
-				if (errno)
-					return ISC_R_FAILURE;
-
-				dfree(s, MDL);
-			} else {
-			    return ISC_R_FAILURE;
-			}
-		}
-	} else if (bnd->value->type == binding_numeric) {
-		errno = 0;
-		fprintf(db_file, "%sset %s = %%%ld;", prepend,
-			bnd->name, bnd->value->value.intval);
-		if (errno)
-			return ISC_R_FAILURE;
-	} else if (bnd->value->type == binding_boolean) {
-		errno = 0;
-		fprintf(db_file, "%sset %s = %s;", prepend, bnd->name,
-			bnd->value->value.intval ? "true" : "false");
-		if (errno)
-			return ISC_R_FAILURE;
-	} else if (bnd->value->type == binding_dns) {
-		log_error("%s: persistent dns values not supported.",
-			  bnd->name);
-	} else if (bnd->value->type == binding_function) {
-		log_error("%s: persistent functions not supported.",
-			  bnd->name);
-	} else {
-		log_fatal("%s: unknown binding type %d", bnd->name,
-			  bnd->value->type);
-	}
-
-	return ISC_R_SUCCESS;
-}
-
 /* Write the specified lease to the current lease database file. */
 
 int write_lease (lease)
 	struct lease *lease;
 {
+	struct tm *t;
+	char tbuf [64];
 	int errors = 0;
+	int i;
 	struct binding *b;
 	char *s;
-	const char *tval;
 
 	/* If the lease file is corrupt, don't try to write any more leases
 	   until we've written a good lease file. */
@@ -122,64 +74,112 @@ int write_lease (lease)
 		++errors;
 	}
 
-	if (lease->starts &&
-	    ((tval = print_time(lease->starts)) == NULL ||
-	     fprintf(db_file, "\n  starts %s", tval) < 0))
-		++errors;
+	/* Note: the following is not a Y2K bug - it's a Y1.9K bug.   Until
+	   somebody invents a time machine, I think we can safely disregard
+	   it. */
+	if (lease -> starts) {
+		if (lease -> starts != MAX_TIME) {
+			t = gmtime (&lease -> starts);
+			/* %Audit% Cannot exceed 59 bytes. %2004.06.17,Safe% */
+			sprintf (tbuf, "%d %d/%02d/%02d %02d:%02d:%02d;",
+				 t -> tm_wday, t -> tm_year + 1900,
+				 t -> tm_mon + 1, t -> tm_mday,
+				 t -> tm_hour, t -> tm_min, t -> tm_sec);
+		} else
+			strcpy (tbuf, "never;");
+		errno = 0;
+		fprintf (db_file, "\n  starts %s", tbuf);
+		if (errno) {
+			++errors;
+		}
+	}
 
-	if (lease->ends &&
-	    ((tval = print_time(lease->ends)) == NULL ||
-	     fprintf(db_file, "\n  ends %s", tval) < 0))
-		++errors;
+	if (lease -> ends) {
+		if (lease -> ends != MAX_TIME) {
+			t = gmtime (&lease -> ends);
+			/* %Audit% Cannot exceed 59 bytes. %2004.06.17,Safe% */
+			sprintf (tbuf, "%d %d/%02d/%02d %02d:%02d:%02d;",
+				 t -> tm_wday, t -> tm_year + 1900,
+				 t -> tm_mon + 1, t -> tm_mday,
+				 t -> tm_hour, t -> tm_min, t -> tm_sec);
+		} else
+			strcpy (tbuf, "never;");
+		errno = 0;
+		fprintf (db_file, "\n  ends %s", tbuf);
+		if (errno) {
+			++errors;
+		}
+	}
 
 	//vyatta--second attempt
 	if (lease->subnet && lease->subnet->shared_network && lease->subnet->shared_network->name)
 	  fprintf(db_file, "\n#shared-network: %s", lease->subnet->shared_network->name);
 
+	if (lease -> tstp) {
+		t = gmtime (&lease -> tstp);
+		errno = 0;
+		fprintf (db_file, "\n  tstp %d %d/%02d/%02d %02d:%02d:%02d;",
+			 t -> tm_wday, t -> tm_year + 1900,
+			 t -> tm_mon + 1, t -> tm_mday,
+			 t -> tm_hour, t -> tm_min, t -> tm_sec);
+		if (errno) {
+			++errors;
+		}
+	}
+	if (lease -> tsfp) {
+		t = gmtime (&lease -> tsfp);
+		errno = 0;
+		fprintf (db_file, "\n  tsfp %d %d/%02d/%02d %02d:%02d:%02d;",
+			 t -> tm_wday, t -> tm_year + 1900,
+			 t -> tm_mon + 1, t -> tm_mday,
+			 t -> tm_hour, t -> tm_min, t -> tm_sec);
+		if (errno) {
+			++errors;
+		}
+	}
+	if (lease->atsfp) {
+		t = gmtime(&lease->atsfp);
+		if (fprintf(db_file,
+			    "\n  atsfp %d %d/%02d/%02d %02d:%02d:%02d;",
+			    t->tm_wday, t->tm_year + 1900, t->tm_mon + 1,
+			    t->tm_mday, t->tm_hour, t->tm_min, t->tm_sec) <= 0)
+			++errors;
+	}
+	if (lease -> cltt) {
+		t = gmtime (&lease -> cltt);
+		errno = 0;
+		fprintf (db_file, "\n  cltt %d %d/%02d/%02d %02d:%02d:%02d;",
+			 t -> tm_wday, t -> tm_year + 1900,
+			 t -> tm_mon + 1, t -> tm_mday,
+			 t -> tm_hour, t -> tm_min, t -> tm_sec);
+		if (errno) {
+			++errors;
+		}
+	}
 
-	if (lease->tstp &&
-	    ((tval = print_time(lease->tstp)) == NULL ||
-	     fprintf(db_file, "\n  tstp %s", tval) < 0))
-		++errors;
+	if (lease -> binding_state == FTS_ACTIVE &&
+	    (lease -> flags & BOOTP_LEASE)) {
+		fprintf (db_file, "\n  binding state bootp;\n");
+	} else {
+		fprintf (db_file, "\n  binding state %s;",
+			 ((lease -> binding_state > 0 &&
+			   lease -> binding_state <= FTS_LAST)
+			  ? binding_state_names [lease -> binding_state - 1]
+			  : "abandoned"));
+	}
 
-	if (lease->tsfp &&
-	    ((tval = print_time(lease->tsfp)) == NULL ||
-	     fprintf(db_file, "\n  tsfp %s", tval) < 0))
-		++errors;
-
-	if (lease->atsfp &&
-	    ((tval = print_time(lease->atsfp)) == NULL ||
-	     fprintf(db_file, "\n  atsfp %s", tval) < 0))
-		++errors;
-
-	if (lease->cltt &&
-	    ((tval = print_time(lease->cltt)) == NULL ||
-	     fprintf(db_file, "\n  cltt %s", tval) < 0))
-		++errors;
-
-	if (fprintf (db_file, "\n  binding state %s;",
-		 ((lease -> binding_state > 0 &&
-		   lease -> binding_state <= FTS_LAST)
-		  ? binding_state_names [lease -> binding_state - 1]
-		  : "abandoned")) < 0)
-                ++errors;
-
-	if (lease -> binding_state != lease -> next_binding_state)
-		if (fprintf (db_file, "\n  next binding state %s;",
+	if (lease -> binding_state != lease -> next_binding_state) {
+	    if (lease -> next_binding_state == FTS_ACTIVE &&
+		(lease -> flags & BOOTP_LEASE))
+		fprintf (db_file, "\n  next binding state bootp;\n");
+	    else
+		fprintf (db_file, "\n  next binding state %s;",
 			 ((lease -> next_binding_state > 0 &&
 			   lease -> next_binding_state <= FTS_LAST)
 			  ? (binding_state_names
 			     [lease -> next_binding_state - 1])
-			  : "abandoned")) < 0)
-                        ++errors;
-
-	if (lease->flags & RESERVED_LEASE)
-		if (fprintf(db_file, "\n  reserved;") < 0)
-                        ++errors;
-
-	if (lease->flags & BOOTP_LEASE)
-		if (fprintf(db_file, "\n  dynamic-bootp;") < 0)
-                        ++errors;
+		  : "abandoned"));
+	}
 
 	/* If this lease is billed to a class and is still valid,
 	   write it out. */
@@ -198,13 +198,14 @@ int write_lease (lease)
 			 print_hw_addr (lease -> hardware_addr.hbuf [0],
 					lease -> hardware_addr.hlen - 1,
 					&lease -> hardware_addr.hbuf [1]));
-		if (errno)
+		if (errno) {
 			++errors;
+		}
 	}
 	if (lease -> uid_len) {
+		int i;
 		s = quotify_buf (lease -> uid, lease -> uid_len, MDL);
 		if (s) {
-			errno = 0;
 			fprintf (db_file, "\n  uid \"%s\";", s);
 			if (errno)
 				++errors;
@@ -212,17 +213,49 @@ int write_lease (lease)
 		} else
 			++errors;
 	}
-
-	if (lease->scope != NULL) {
-	    for (b = lease->scope->bindings; b; b = b->next) {
-		if (!b->value)
+	if (lease -> scope) {
+	    for (b = lease -> scope -> bindings; b; b = b -> next) {
+		if (!b -> value)
 			continue;
-
-		if (write_binding_scope(db_file, b, "\n  ") != ISC_R_SUCCESS)
+		if (b -> value -> type == binding_data) {
+		    if (b -> value -> value.data.data) {
+			s = quotify_buf (b -> value -> value.data.data,
+					 b -> value -> value.data.len, MDL);
+			if (s) {
+			    errno = 0;
+			    fprintf (db_file, "\n  set %s = \"%s\";",
+				     b -> name, s);
+			    if (errno)
+				++errors;
+			    dfree (s, MDL);
+			} else
+			    ++errors;
+		    }
+		} else if (b -> value -> type == binding_numeric) {
+		    errno = 0;
+		    fprintf (db_file, "\n  set %s = %%%ld;",
+			     b -> name, b -> value -> value.intval);
+		    if (errno)
 			++errors;
+		} else if (b -> value -> type == binding_boolean) {
+		    errno = 0;
+		    fprintf (db_file, "\n  set %s = %s;",
+			     b -> name,
+			     b -> value -> value.intval ? "true" : "false");
+		    if (errno)
+			    ++errors;
+		} else if (b -> value -> type == binding_dns) {
+			log_error ("%s: persistent dns values not supported.",
+				   b -> name);
+		} else if (b -> value -> type == binding_function) {
+			log_error ("%s: persistent functions not supported.",
+				   b -> name);
+		} else {
+			log_error ("%s: unknown binding type %d",
+				   b -> name, b -> value -> type);
+		}
 	    }
 	}
-
 	if (lease -> agent_options) {
 	    struct option_cache *oc;
 	    struct data_string ds;
@@ -243,7 +276,7 @@ int write_lease (lease)
 	    }
 	}
 	if (lease -> client_hostname &&
-	    db_printable((unsigned char *)lease->client_hostname)) {
+	    db_printable (lease -> client_hostname)) {
 		s = quotify_string (lease -> client_hostname, MDL);
 		if (s) {
 			errno = 0;
@@ -259,33 +292,31 @@ int write_lease (lease)
 		fprintf (db_file, "\n  on expiry%s {",
 			 lease -> on_expiry == lease -> on_release
 			 ? " or release" : "");
+		if (errno)
+			++errors;
 		write_statements (db_file, lease -> on_expiry, 4);
 		/* XXX */
 		fprintf (db_file, "\n  }");
-		if (errno)
-			++errors;
 	}
 	if (lease -> on_release && lease -> on_release != lease -> on_expiry) {
 		errno = 0;
 		fprintf (db_file, "\n  on release {");
+		if (errno)
+			++errors;
 		write_statements (db_file, lease -> on_release, 4);
 		/* XXX */
 		fprintf (db_file, "\n  }");
-		if (errno)
-			++errors;
 	}
-
 	errno = 0;
 	fputs ("\n}\n", db_file);
-	if (errno)
+	if (errno) {
 		++errors;
-
-	if (errors) {
+	}
+	if (errors)
 		log_info ("write_lease: unable to write lease %s",
 		      piaddr (lease -> ip_addr));
+	if (errors)
 		lease_file_is_corrupt = 1;
-        }
-
 	return !errors;
 }
 
@@ -302,16 +333,17 @@ int write_host (host)
 		if (!new_lease_file ())
 			return 0;
 
-	if (!db_printable((unsigned char *)host->name))
+	if (!db_printable (host -> name))
 		return 0;
 
 	if (counting)
 		++count;
-
 	errno = 0;
+
 	fprintf (db_file, "host %s {", host -> name);
-	if (errno)
+	if (errno) {
 		++errors;
+	}
 
 	if (host -> flags & HOST_DECL_DYNAMIC) {
 		errno = 0;
@@ -333,8 +365,9 @@ int write_host (host)
 				 print_hw_addr (host -> interface.hbuf [0],
 						host -> interface.hlen - 1,
 						&host -> interface.hbuf [1]));
-			if (errno)
+			if (errno) {
 				++errors;
+			}
 		}
 		if (host -> client_identifier.len) {
 			int i;
@@ -344,28 +377,24 @@ int write_host (host)
 				fprintf (db_file, "\n  uid \"%.*s\";",
 					 (int)host -> client_identifier.len,
 					 host -> client_identifier.data);
-				if (errno)
-					++errors;
 			} else {
 				fprintf (db_file,
 					 "\n  uid %2.2x",
 					 host -> client_identifier.data [0]);
-				if (errno)
+				if (errno) {
 					++errors;
+				}
 				for (i = 1;
 				     i < host -> client_identifier.len; i++) {
 					errno = 0;
 					fprintf (db_file, ":%2.2x",
 						 host ->
 						 client_identifier.data [i]);
-					if (errno)
+					if (errno) {
 						++errors;
+					}
 				}
-
-                                errno = 0;
-				fputc (';', db_file);
-				if (errno)
-					++errors;
+				putc (';', db_file);
 			}
 		}
 		
@@ -381,10 +410,10 @@ int write_host (host)
 		
 			errno = 0;
 			fprintf (db_file, "\n  fixed-address ");
-			if (errno)
+			if (errno) {
 				++errors;
+			}
 			for (i = 0; i < ip_addrs.len - 3; i += 4) {
-
 				errno = 0;
 				fprintf (db_file, "%u.%u.%u.%u%s",
 					 ip_addrs.data [i] & 0xff,
@@ -392,22 +421,24 @@ int write_host (host)
 					 ip_addrs.data [i + 2] & 0xff,
 					 ip_addrs.data [i + 3] & 0xff,
 					 i + 7 < ip_addrs.len ? "," : "");
-				if (errno)
+				if (errno) {
 					++errors;
+				}
 			}
-
 			errno = 0;
 			fputc (';', db_file);
-			if (errno)
+			if (errno) {
 				++errors;
+			}
 		}
 
 		if (host -> named_group) {
 			errno = 0;
 			fprintf (db_file, "\n  group \"%s\";",
 				 host -> named_group -> name);
-			if (errno)
+			if (errno) {
 				++errors;
+			}
 		}
 
 		if (host -> group &&
@@ -417,22 +448,22 @@ int write_host (host)
 			errno = 0;
 			write_statements (db_file,
 					  host -> group -> statements, 8);
-			if (errno)
+			if (errno) {
 				++errors;
+			}
 		}
 	}
 
 	errno = 0;
 	fputs ("\n}\n", db_file);
-	if (errno)
+	if (errno) {
 		++errors;
-
+	}
 	if (errors) {
 		log_info ("write_host: unable to write host %s",
 			  host -> name);
 		lease_file_is_corrupt = 1;
 	}
-
 	return !errors;
 }
 
@@ -440,6 +471,7 @@ int write_group (group)
 	struct group_object *group;
 {
 	int errors = 0;
+	int i;
 
 	/* If the lease file is corrupt, don't try to write any more leases
 	   until we've written a good lease file. */
@@ -447,16 +479,17 @@ int write_group (group)
 		if (!new_lease_file ())
 			return 0;
 
-	if (!db_printable((unsigned char *)group->name))
+	if (!db_printable (group -> name))
 		return 0;
 
 	if (counting)
 		++count;
-
 	errno = 0;
+
 	fprintf (db_file, "group %s {", group -> name);
-	if (errno)
+	if (errno) {
 		++errors;
+	}
 
 	if (group -> flags & GROUP_OBJECT_DYNAMIC) {
 		errno = 0;
@@ -482,236 +515,30 @@ int write_group (group)
 			errno = 0;
 			write_statements (db_file,
 					  group -> group -> statements, 8);
-			if (errno)
+			if (errno) {
 				++errors;
+			}
 		}
 	}
 
 	errno = 0;
 	fputs ("\n}\n", db_file);
-	if (errno)
+	if (errno) {
 		++errors;
-
+	}
 	if (errors) {
 		log_info ("write_group: unable to write group %s",
 			  group -> name);
 		lease_file_is_corrupt = 1;
 	}
-
 	return !errors;
 }
-
-/*
- * Write an IA and the options it has.
- */
-int
-write_ia(const struct ia_xx *ia) {
-	struct iasubopt *iasubopt;
-	struct binding *bnd;
-	int i;
-	char addr_buf[sizeof("ffff:ffff:ffff:ffff:ffff:ffff.255.255.255.255")];
-	const char *binding_state;
-	const char *tval;
-	char *s;
-	int fprintf_ret;
-
-	/* 
-	 * If the lease file is corrupt, don't try to write any more 
-	 * leases until we've written a good lease file. 
-	 */
-	if (lease_file_is_corrupt) {
-		if (!new_lease_file()) {
-			return 0;
-		}
-	}
-
-	if (counting) {
-		++count;
-	}
-
-	
-	s = quotify_buf(ia->iaid_duid.data, ia->iaid_duid.len, MDL);
-	if (s == NULL) {
-		goto error_exit;
-	}
-	switch (ia->ia_type) {
-	case D6O_IA_NA:
-		fprintf_ret = fprintf(db_file, "ia-na \"%s\" {\n", s);
-		break;
-	case D6O_IA_TA:
-		fprintf_ret = fprintf(db_file, "ia-ta \"%s\" {\n", s);
-		break;
-	case D6O_IA_PD:
-		fprintf_ret = fprintf(db_file, "ia-pd \"%s\" {\n", s);
-		break;
-	default:
-		log_error("Unknown ia type %u for \"%s\" at %s:%d",
-			  (unsigned)ia->ia_type, s, MDL);
-		fprintf_ret = -1;
-	}
-	dfree(s, MDL);
-	if (fprintf_ret < 0) {
-		goto error_exit;
-	}
-	if (ia->cltt != MIN_TIME) {
-		tval = print_time(ia->cltt);
-		if (tval == NULL) {
-			goto error_exit;
-		}
-		if (fprintf(db_file, "  cltt %s\n", tval) < 0) {
-			goto error_exit;
-		}
-	}
-	for (i=0; i<ia->num_iasubopt; i++) {
-		iasubopt = ia->iasubopt[i];
-
-		inet_ntop(AF_INET6, &iasubopt->addr,
-			  addr_buf, sizeof(addr_buf));
-		if ((ia->ia_type != D6O_IA_PD) &&
-		    (fprintf(db_file, "  iaaddr %s {\n", addr_buf) < 0)) {
-			goto error_exit;
-		}
-		if ((ia->ia_type == D6O_IA_PD) &&
-		    (fprintf(db_file, "  iaprefix %s/%d {\n",
-			     addr_buf, (int)iasubopt->plen) < 0)) {
-			goto error_exit;
-		}
-		if ((iasubopt->state <= 0) || (iasubopt->state > FTS_LAST)) {
-			log_fatal("Unknown iasubopt state %d at %s:%d", 
-				  iasubopt->state, MDL);
-		}
-		binding_state = binding_state_names[iasubopt->state-1];
-		if (fprintf(db_file, "    binding state %s;\n", 
-			    binding_state) < 0) {
-			goto error_exit;
-		}
-		if (fprintf(db_file, "    preferred-life %u\n",
-			    (unsigned)iasubopt->prefer) < 0) {
-			goto error_exit;
-		}
-		if (fprintf(db_file, "    max-life %u\n",
-			    (unsigned)iasubopt->valid) < 0) {
-			goto error_exit;
-		}
-
-		/* Note that from here on out, the \n is prepended to the
-		 * next write, rather than appended to the current write.
-		 */
-		if ((iasubopt->state == FTS_ACTIVE) ||
-		    (iasubopt->state == FTS_ABANDONED) ||
-		    (iasubopt->hard_lifetime_end_time != 0)) {
-			tval = print_time(iasubopt->hard_lifetime_end_time);
-		} else {
-			tval = print_time(iasubopt->soft_lifetime_end_time);
-		}
-		if (tval == NULL) {
-			goto error_exit;
-		}
-		if (fprintf(db_file, "    ends %s", tval) < 0) {
-			goto error_exit;
-		}
-
-		/* Write out any binding scopes: note that 'ends' above does
-		 * not have \n on the end!  We want that.
-		 */
-		if (iasubopt->scope != NULL)
-			bnd = iasubopt->scope->bindings;
-		else
-			bnd = NULL;
-
-		for (; bnd != NULL ; bnd = bnd->next) {
-			if (bnd->value == NULL)
-				continue;
-
-			/* We don't do a regular error_exit because the
-			 * lease db is not corrupt in this case.
-			 */
-			if (write_binding_scope(db_file, bnd,
-						"\n    ") != ISC_R_SUCCESS)
-				goto error_exit;
-				
-		}
-
-		if (fprintf(db_file, "\n  }\n") < 0)
-                        goto error_exit;
-	}
-	if (fprintf(db_file, "}\n\n") < 0)
-                goto error_exit;
-
-	fflush(db_file);
-	return 1;
-
-error_exit:
-	log_info("write_ia: unable to write ia");
-	lease_file_is_corrupt = 1;
-	return 0;
-}
-
-#ifdef DHCPv6
-/*
- * Put a copy of the server DUID in the leases file.
- */
-int
-write_server_duid(void) {
-	struct data_string server_duid;
-	char *s;
-	int fprintf_ret;
-
-	/*
-	 * Only write the DUID if it's been set.
-	 */
-	if (!server_duid_isset()) {
-		return 1;
-	}
-
-	/* 
-	 * If the lease file is corrupt, don't try to write any more 
-	 * leases until we've written a good lease file. 
-	 */
-	if (lease_file_is_corrupt) {
-		if (!new_lease_file()) {
-			return 0;
-		}
-	}
-
-	/*
-	 * Get a copy of our server DUID and convert to a quoted string.
-	 */
-	memset(&server_duid, 0, sizeof(server_duid));
-	copy_server_duid(&server_duid, MDL);
-	s = quotify_buf(server_duid.data, server_duid.len, MDL);
-	data_string_forget(&server_duid, MDL);
-	if (s == NULL) {
-		goto error_exit;
-	}
-
-	/*
-	 * Write to the leases file.
-	 */
-	fprintf_ret = fprintf(db_file, "server-duid \"%s\";\n\n", s);
-	dfree(s, MDL);
-	if (fprintf_ret < 0) {
-		goto error_exit;
-	}
-
-	/*
-	 * Check if we actually managed to write.
-	 */
-	fflush(db_file);
-	return 1;
-
-error_exit:
-	log_info("write_server_duid: unable to write server-duid");
-	lease_file_is_corrupt = 1;
-	return 0;
-}
-#endif /* DHCPv6 */
 
 #if defined (FAILOVER_PROTOCOL)
 int write_failover_state (dhcp_failover_state_t *state)
 {
+	struct tm *t;
 	int errors = 0;
-	const char *tval;
 
 	if (lease_file_is_corrupt)
 		if (!new_lease_file ())
@@ -722,20 +549,28 @@ int write_failover_state (dhcp_failover_state_t *state)
 	if (errno)
 		++errors;
 
-	tval = print_time(state->me.stos);
-	if (tval == NULL ||
-	    fprintf(db_file, "\n  my state %s at %s",
-		    (state->me.state == startup) ?
-		    dhcp_failover_state_name_print(state->saved_state) :
-		    dhcp_failover_state_name_print(state->me.state),
-		    tval) < 0)
+	t = gmtime (&state -> me.stos);
+	errno = 0;
+	fprintf (db_file, "\n  my state %s at %d %d/%02d/%02d %02d:%02d:%02d;",
+		 /* Never record our state as "startup"! */
+		 (state -> me.state == startup
+		  ? dhcp_failover_state_name_print (state -> saved_state)
+		  : dhcp_failover_state_name_print (state -> me.state)),
+		 t -> tm_wday, t -> tm_year + 1900,
+		 t -> tm_mon + 1, t -> tm_mday,
+		 t -> tm_hour, t -> tm_min, t -> tm_sec);
+	if (errno)
 		++errors;
 
-	tval = print_time(state->partner.stos);
-	if (tval == NULL ||
-	    fprintf(db_file, "\n  partner state %s at %s",
-		    dhcp_failover_state_name_print(state->partner.state),
-		    tval) < 0)
+	t = gmtime (&state -> partner.stos);
+	errno = 0;
+	fprintf (db_file,
+		 "\n  partner state %s at %d %d/%02d/%02d %02d:%02d:%02d;",
+		 dhcp_failover_state_name_print (state -> partner.state),
+		 t -> tm_wday, t -> tm_year + 1900,
+		 t -> tm_mon + 1, t -> tm_mday,
+		 t -> tm_hour, t -> tm_min, t -> tm_sec);
+	if (errno)
 		++errors;
 
 	if (state -> i_am == secondary) {
@@ -745,8 +580,6 @@ int write_failover_state (dhcp_failover_state_t *state)
 		if (errno)
 			++errors;
 	}
-
-        errno = 0;
 	fprintf (db_file, "\n}\n");
 	if (errno)
 		++errors;
@@ -757,14 +590,13 @@ int write_failover_state (dhcp_failover_state_t *state)
 		lease_file_is_corrupt = 1;
 		return 0;
 	}
-
 	return 1;
 
 }
 #endif
 
 int db_printable (s)
-	const unsigned char *s;
+	const char *s;
 {
 	int i;
 	for (i = 0; s [i]; i++)
@@ -779,7 +611,6 @@ int db_printable_len (s, len)
 	unsigned len;
 {
 	int i;
-
 	for (i = 0; i < len; i++)
 		if (!isascii (s [i]) || !isprint (s [i]) ||
 		    s [i] == '"' || s [i] == '\\')
@@ -787,140 +618,19 @@ int db_printable_len (s, len)
 	return 1;
 }
 
-static int print_hash_string(FILE *fp, struct class *class)
+void write_named_billing_class (const char *name, unsigned len,
+				struct class *class)
 {
-	int i;
-
-	for (i = 0 ; i < class->hash_string.len ; i++)
-		if (!isascii(class->hash_string.data[i]) ||
-		    !isprint(class->hash_string.data[i]))
-			break;
-
-	if (i == class->hash_string.len) {
-		if (fprintf(fp, " \"%.*s\"", (int)class->hash_string.len,
-			    class->hash_string.data) <= 0) {
-			log_error("Failure writing hash string: %m");
-			return 0;
-		}
-	} else {
-		if (fprintf(fp, " %2.2x", class->hash_string.data[0]) <= 0) {
-			log_error("Failure writing hash string: %m");
-			return 0;
-		}
-		for (i = 1 ; i < class->hash_string.len ; i++) {
-			if (fprintf(fp, ":%2.2x",
-				    class->hash_string.data[i]) <= 0) {
-				log_error("Failure writing hash string: %m");
-				return 0;
-			}
-		}
-	}
-
-	return 1;
-}
-
-
-isc_result_t
-write_named_billing_class(const void *key, unsigned len, void *object)
-{
-	const unsigned char *name = key;
-	struct class *class = object;
-
-	if (class->flags & CLASS_DECL_DYNAMIC) {
-		numclasseswritten++;
-		if (class->superclass == 0) {
-			if (fprintf(db_file, "class \"%s\" {\n", name) <= 0)
-				return ISC_R_IOERROR;
-		} else {
-			if (fprintf(db_file, "subclass \"%s\"",
-				    class->superclass->name) <= 0)
-				return ISC_R_IOERROR;
-			if (!print_hash_string(db_file, class))
-				return ISC_R_IOERROR;
-			if (fprintf(db_file, " {\n") <= 0)
-				return ISC_R_IOERROR;
-		}
-
-		if ((class->flags & CLASS_DECL_DELETED) != 0) {
-			if (fprintf(db_file, "  deleted;\n") <= 0)
-				return ISC_R_IOERROR;
-		} else {
-			if (fprintf(db_file, "  dynamic;\n") <= 0)
-				return ISC_R_IOERROR;
-		}
-	
-		if (class->lease_limit > 0) {
-			if (fprintf(db_file, "  lease limit %d;\n",
-				    class->lease_limit) <= 0)
-				return ISC_R_IOERROR;
-		}
-
-		if (class->expr != 0) {
-			if (fprintf(db_file, "  match if ") <= 0)
-				return ISC_R_IOERROR;
-
-                        errno = 0;                                       
-			write_expression(db_file, class->expr, 5, 5, 0);
-                        if (errno)
-                                return ISC_R_IOERROR;
-
-			if (fprintf(db_file, ";\n") <= 0)
-				return ISC_R_IOERROR;
-		}
-
-		if (class->submatch != 0) {
-			if (class->spawning) {
-				if (fprintf(db_file, "  spawn ") <= 0)
-					return ISC_R_IOERROR;
-			} else {
-				if (fprintf(db_file, "  match ") <= 0)
-					return ISC_R_IOERROR;
-			}
-
-                        errno = 0;
-			write_expression(db_file, class->submatch, 5, 5, 0);
-                        if (errno)
-                                return ISC_R_IOERROR;
-
-			if (fprintf(db_file, ";\n") <= 0)
-				return ISC_R_IOERROR;
-		}
-	
-		if (class->statements != 0) {
-                        errno = 0;
-			write_statements(db_file, class->statements, 8);
-                        if (errno)
-                                return ISC_R_IOERROR;
-		}
-
-		/* XXXJAB this isn't right, but classes read in off the
-		   leases file don't get the root group assigned to them
-		   (due to clone_group() call). */
-		if (class->group != 0 && class->group->authoritative != 0) {
-                        errno = 0;
-			write_statements(db_file, class->group->statements, 8);
-                        if (errno)
-                                return ISC_R_IOERROR;
-                }
-
-		if (fprintf(db_file, "}\n\n") <= 0)
-			return ISC_R_IOERROR;
-	}
-
-	if (class->hash != NULL) {	/* yep. recursive. god help us. */
-		/* XXX - cannot check error status of this...
-		 * foo_hash_foreach returns a count of operations completed.
-		 */
-		class_hash_foreach(class->hash, write_named_billing_class);
-	}
-
-	return ISC_R_SUCCESS;
+	/* XXX billing classes that are modified by OMAPI need
+	   XXX to be detected and written out here. */
 }
 
 void write_billing_classes ()
 {
 	struct collection *lp;
 	struct class *cp;
+	struct hash_bucket *bp;
+	int i;
 
 	for (lp = collections; lp; lp = lp -> next) {
 	    for (cp = lp -> classes; cp; cp = cp -> nic) {
@@ -937,6 +647,7 @@ int write_billing_class (class)
 	struct class *class;
 {
 	int errors = 0;
+	int i;
 
 	if (lease_file_is_corrupt)
 		if (!new_lease_file ())
@@ -948,20 +659,44 @@ int write_billing_class (class)
 		return !errno;
 	}
 
-	if (fprintf(db_file, "\n  billing subclass \"%s\"",
-		    class -> superclass -> name) < 0)
+	errno = 0;
+	fprintf (db_file, "\n  billing subclass \"%s\"",
+		 class -> superclass -> name);
+	if (errno)
 		++errors;
 
-	if (!print_hash_string(db_file, class))
-                ++errors;
-
-	if (fprintf(db_file, ";") < 0)
-                ++errors;
+	for (i = 0; i < class -> hash_string.len; i++)
+		if (!isascii (class -> hash_string.data [i]) ||
+		    !isprint (class -> hash_string.data [i]))
+			break;
+	if (i == class -> hash_string.len) {
+		errno = 0;
+		fprintf (db_file, " \"%.*s\";",
+			 (int)class -> hash_string.len,
+			 class -> hash_string.data);
+		if (errno)
+			++errors;
+	} else {
+		errno = 0;
+		fprintf (db_file, " %2.2x", class -> hash_string.data [0]);
+		if (errno)
+			++errors;
+		for (i = 1; i < class -> hash_string.len; i++) {
+			errno = 0;
+			fprintf (db_file, ":%2.2x",
+				 class -> hash_string.data [i]);
+			if (errno)
+				++errors;
+		}
+		errno = 0;
+		fprintf (db_file, ";");
+		if (errno)
+			++errors;
+	}
 
 	class -> dirty = !errors;
 	if (errors)
 		lease_file_is_corrupt = 1;
-
 	return !errors;
 }
 
@@ -986,9 +721,6 @@ int commit_leases ()
 		log_info ("commit_leases: unable to commit: %m");
 		return 0;
 	}
-
-	/* send out all deferred ACKs now */
-	flush_ackqueue(NULL);
 
 	/* If we haven't rewritten the lease database in over an
 	   hour, rewrite it now.  (The length of time should probably
@@ -1035,19 +767,9 @@ void db_startup (testp)
 			write_time = cur_time;
 		else
 #endif
-			time(&write_time);
+			GET_TIME (&write_time);
 		new_lease_file ();
 	}
-
-#if defined(REPORT_HASH_PERFORMANCE)
-	log_info("Host HW hash:   %s", host_hash_report(host_hw_addr_hash));
-	log_info("Host UID hash:  %s", host_hash_report(host_uid_hash));
-	log_info("Lease IP hash:  %s",
-		 lease_ip_hash_report(lease_ip_addr_hash));
-	log_info("Lease UID hash: %s", lease_id_hash_report(lease_uid_hash));
-	log_info("Lease HW hash:  %s",
-		 lease_id_hash_report(lease_hw_addr_hash));
-#endif
 }
 
 int new_lease_file ()
@@ -1060,7 +782,7 @@ int new_lease_file ()
 	FILE *new_db_file;
 
 	/* Make a temporary lease file... */
-	time(&t);
+	GET_TIME (&t);
 
 	db_validity = lease_file_is_corrupt;
 
@@ -1090,15 +812,35 @@ int new_lease_file ()
 		fclose(db_file);
 	db_file = new_db_file;
 
+	/* Write an introduction so people don't complain about time
+	   being off. */
 	errno = 0;
+	fprintf (db_file, "# All times in this file are in UTC (GMT), not %s",
+		 "your local timezone.   This is\n");
+	if (errno != 0)
+		goto fail;
+	fprintf (db_file, "# not a bug, so please don't ask about it.   %s",
+		 "There is no portable way to\n");
+	if (errno != 0)
+		goto fail;
+	fprintf (db_file, "# store leases in the local timezone, so please %s",
+		 "don't request this as a\n");
+	if (errno != 0)
+		goto fail;
+	fprintf (db_file, "# feature.   If this is inconvenient or %s",
+		 "confusing to you, we sincerely\n");
+	if (errno != 0)
+		goto fail;
+	fprintf (db_file, "# apologize.   Seriously, though - don't ask.\n");
+	if (errno != 0)
+		goto fail;
 	fprintf (db_file, "# The format of this file is documented in the %s",
 		 "dhcpd.leases(5) manual page.\n");
-	if (errno)
+	if (errno != 0)
 		goto fail;
-
 	fprintf (db_file, "# This lease file was written by isc-dhcp-%s\n\n",
-		 PACKAGE_VERSION);
-	if (errno)
+		 DHCP_VERSION);
+	if (errno != 0)
 		goto fail;
 
 	/* At this point we have a new lease file that, so far, could not

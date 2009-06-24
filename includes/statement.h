@@ -3,7 +3,7 @@
    Definitions for executable statements... */
 
 /*
- * Copyright (c) 2004,2007 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1996-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -56,8 +56,7 @@ struct executable_statement {
 		let_statement,
 		define_statement,
 		log_statement,
-		return_statement,
-		execute_statement
+		return_statement
 	} op;
 	union {
 		struct {
@@ -100,11 +99,6 @@ struct executable_statement {
 			} priority;
 			struct expression *expr;
 		} log;
-		struct {
-			char *command;
-			struct expression *arglist;
-			int argc;
-		} execute;
 	} data;
 };
 

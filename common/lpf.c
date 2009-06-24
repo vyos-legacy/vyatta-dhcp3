@@ -4,7 +4,7 @@
    Support Services in Vancouver, B.C. */
 
 /*
- * Copyright (c) 2004,2007 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2007 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1996-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -26,11 +26,15 @@
  *   http://www.isc.org/
  */
 
+#ifndef lint
+static char copyright[] =
+"$Id: lpf.c,v 1.29.2.5 2007/05/01 20:42:55 each Exp $ Copyright (c) 2004 Internet Systems Consortium.  All rights reserved.\n";
+#endif /* not lint */
+
 #include "dhcpd.h"
 #if defined (USE_LPF_SEND) || defined (USE_LPF_RECEIVE)
 #include <sys/ioctl.h>
 #include <sys/uio.h>
-#include <errno.h>
 
 #include <asm/types.h>
 #include <linux/filter.h>
@@ -39,7 +43,6 @@
 #include "includes/netinet/ip.h"
 #include "includes/netinet/udp.h"
 #include "includes/netinet/if_ether.h"
-#include <net/if.h>
 
 /* Reinitializes the specified interface after an address change.   This
    is not required for packet-filter APIs. */
@@ -66,6 +69,8 @@ int if_register_lpf (info)
 	struct interface_info *info;
 {
 	int sock;
+	char filename[50];
+	int b;
 	struct sockaddr sa;
 
 	/* Make an LPF socket. */
@@ -101,8 +106,6 @@ int if_register_lpf (info)
 		}
 		log_fatal ("Bind socket to interface: %m");
 	}
-
-	get_hw_addr(info->name, &info->hw_address);
 
 	return sock;
 }
@@ -213,8 +216,6 @@ static void lpf_gen_filter_setup (info)
 	struct interface_info *info;
 {
 	struct sock_fprog p;
-
-	memset(&p, 0, sizeof(p));
 
 	/* Set up the bpf filter program structure.    This is defined in
 	   bpf.c */
@@ -333,6 +334,7 @@ ssize_t receive_packet (interface, buf, len, from, hfrom)
 	struct sockaddr_in *from;
 	struct hardware *hfrom;
 {
+	int nread;
 	int length = 0;
 	int offset = 0;
 	unsigned char ibuf [1536];
@@ -404,59 +406,9 @@ void maybe_setup_fallback ()
 						   if_readsocket, 0,
 						   fallback_discard, 0, 0);
 		if (status != ISC_R_SUCCESS)
-			log_fatal ("Can't register I/O handle for \"%s\": %s",
+			log_fatal ("Can't register I/O handle for %s: %s",
 				   fbi -> name, isc_result_totext (status));
 		interface_dereference (&fbi, MDL);
 	}
-}
-
-void
-get_hw_addr(const char *name, struct hardware *hw) {
-	int sock;
-	struct ifreq tmp;
-	struct sockaddr *sa;
-
-	if (strlen(name) >= sizeof(tmp.ifr_name)) {
-		log_fatal("Device name too long: \"%s\"", name);
-	}
-
-	sock = socket(AF_INET, SOCK_DGRAM, 0);
-	if (sock < 0) {
-		log_fatal("Can't create socket for \"%s\": %m", name);
-	}
-
-	memset(&tmp, 0, sizeof(tmp));
-	strcpy(tmp.ifr_name, name);
-	if (ioctl(sock, SIOCGIFHWADDR, &tmp) < 0) {
-		log_fatal("Error getting hardware address for \"%s\": %m", 
-			  name);
-	}
-
-	sa = &tmp.ifr_hwaddr;
-	switch (sa->sa_family) {
-		case ARPHRD_ETHER:
-			hw->hlen = 7;
-			hw->hbuf[0] = HTYPE_ETHER;
-			memcpy(&hw->hbuf[1], sa->sa_data, 6);
-			break;
-		case ARPHRD_IEEE802:
-#ifdef ARPHRD_IEEE802_TR
-		case ARPHRD_IEEE802_TR:
-#endif /* ARPHRD_IEEE802_TR */
-			hw->hlen = 7;
-			hw->hbuf[0] = HTYPE_IEEE802;
-			memcpy(&hw->hbuf[1], sa->sa_data, 6);
-			break;
-		case ARPHRD_FDDI:
-			hw->hlen = 17;
-			hw->hbuf[0] = HTYPE_FDDI;
-			memcpy(&hw->hbuf[1], sa->sa_data, 16);
-			break;
-		default:
-			log_fatal("Unsupported device type %ld for \"%s\"",
-				  (long int)sa->sa_family, name);
-	}
-
-	close(sock);
 }
 #endif

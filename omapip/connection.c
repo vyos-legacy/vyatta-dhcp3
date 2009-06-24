@@ -3,7 +3,7 @@
    Subroutines for dealing with connections. */
 
 /*
- * Copyright (c) 2004,2007 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1999-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -32,12 +32,9 @@
  * ``http://www.nominum.com''.
  */
 
-#include "dhcpd.h"
-
 #include <omapip/omapip_p.h>
 #include <arpa/inet.h>
 #include <arpa/nameser.h>
-#include <errno.h>
 
 
 #if defined (TRACING)
@@ -114,6 +111,10 @@ isc_result_t omapi_connect_list (omapi_object_t *c,
 	omapi_connection_object_t *obj;
 	int flag;
 	struct sockaddr_in local_sin;
+#if defined (TRACING)
+	trace_addr_t *addrs;
+	u_int16_t naddrs;
+#endif
 
 	obj = (omapi_connection_object_t *)0;
 	status = omapi_connection_allocate (&obj, MDL);
@@ -173,9 +174,8 @@ isc_result_t omapi_connect_list (omapi_object_t *c,
 			
 			if (bind (obj -> socket, (struct sockaddr *)&local_sin,
 				  sizeof local_sin) < 0) {
-				omapi_connection_object_t **objp = &obj;
-				omapi_object_t **o = (omapi_object_t **)objp;
-				omapi_object_dereference(o, MDL);
+				omapi_object_dereference ((omapi_object_t **)
+							  &obj, MDL);
 				if (errno == EADDRINUSE)
 					return ISC_R_ADDRINUSE;
 				if (errno == EADDRNOTAVAIL)
@@ -187,7 +187,7 @@ isc_result_t omapi_connect_list (omapi_object_t *c,
 			obj -> local_addr = local_sin;
 		}
 
-#if defined(F_SETFD)
+#if defined (HAVE_SETFD)
 		if (fcntl (obj -> socket, F_SETFD, 1) < 0) {
 			close (obj -> socket);
 			omapi_connection_dereference (&obj, MDL);
@@ -383,6 +383,9 @@ static void trace_connect_input (trace_type_t *ttype,
 			lp -> state = omapi_connection_connected;
 			lp -> remote_addr = remote;
 			lp -> remote_addr.sin_family = AF_INET;
+#if defined (HAVE_SIN_LEN)
+			lp -> remote_addr.sin_len = sizeof remote;
+#endif
 			omapi_addr_list_dereference (&lp -> connect_list, MDL);
 			lp -> index = connect_index;
 			status = omapi_signal_in ((omapi_object_t *)lp,
@@ -437,6 +440,7 @@ isc_result_t omapi_disconnect (omapi_object_t *h,
 			       int force)
 {
 	omapi_connection_object_t *c;
+	isc_result_t status;
 
 #ifdef DEBUG_PROTOCOL
 	log_debug ("omapi_disconnect(%s)", force ? "force" : "");
@@ -448,7 +452,6 @@ isc_result_t omapi_disconnect (omapi_object_t *h,
 
 #if defined (TRACING)
 	if (trace_record ()) {
-		isc_result_t status;
 		int32_t index;
 
 		index = htonl (c -> index);
@@ -498,28 +501,6 @@ isc_result_t omapi_disconnect (omapi_object_t *h,
 	/* If whatever created us registered a signal handler, send it
 	   a disconnect signal. */
 	omapi_signal (h, "disconnect", h);
-
-	/* Disconnect from protocol object, if any. */
-	if (h->inner != NULL) {
-		if (h->inner->outer != NULL) {
-			omapi_object_dereference(&h->inner->outer, MDL);
-		}
-		omapi_object_dereference(&h->inner, MDL);
-	}
-
-	/* XXX: the code to free buffers should be in the dereference
-		function, but there is no special-purpose function to
-		dereference connections, so these just get leaked */
-	/* Free any buffers */
-	if (c->inbufs != NULL) {
-		omapi_buffer_dereference(&c->inbufs, MDL);
-	}
-	c->in_bytes = 0;
-	if (c->outbufs != NULL) {
-		omapi_buffer_dereference(&c->outbufs, MDL);
-	}
-	c->out_bytes = 0;
-
 	return ISC_R_SUCCESS;
 }
 
@@ -587,7 +568,7 @@ static isc_result_t omapi_connection_connect_internal (omapi_object_t *h)
 {
 	int error;
 	omapi_connection_object_t *c;
-	socklen_t sl;
+	SOCKLEN_T sl;
 	isc_result_t status;
 
 	if (h -> type != omapi_type_connection)
@@ -1024,6 +1005,8 @@ isc_result_t omapi_connection_stuff_values (omapi_object_t *c,
 					    omapi_object_t *id,
 					    omapi_object_t *m)
 {
+	int i;
+
 	if (m -> type != omapi_type_connection)
 		return ISC_R_INVALIDARG;
 

@@ -3,7 +3,7 @@
    Ultrix PacketFilter interface code. */
 
 /*
- * Copyright (c) 2004,2007 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2007 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1996-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -31,6 +31,11 @@
  * see ``http://www.vix.com''.   To learn more about Nominum, Inc., see
  * ``http://www.nominum.com''.
  */
+
+#ifndef lint
+static char copyright[] =
+"$Id: upf.c,v 1.21.2.7 2007/05/01 20:42:56 each Exp $ Copyright (c) 2004 Internet Systems Consortium.  All rights reserved.\n";
+#endif /* not lint */
 
 #include "dhcpd.h"
 #if defined (USE_UPF_SEND) || defined (USE_UPF_RECEIVE)

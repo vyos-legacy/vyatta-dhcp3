@@ -3,7 +3,7 @@
    Memory allocation... */
 
 /*
- * Copyright (c) 2004-2007 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2006 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1996-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -32,6 +32,11 @@
  * ``http://www.nominum.com''.
  */
 
+#ifndef lint
+static char copyright[] =
+"$Id: alloc.c,v 1.53.2.13 2006/02/22 22:43:27 dhankins Exp $ Copyright (c) 2004-2006 Internet Systems Consortium.  All rights reserved.\n";
+#endif /* not lint */
+
 #include "dhcpd.h"
 #include <omapip/omapip_p.h>
 
@@ -43,6 +48,7 @@ int option_chain_head_allocate (ptr, file, line)
 	const char *file;
 	int line;
 {
+	int size;
 	struct option_chain_head *h;
 
 	if (!ptr) {
@@ -103,6 +109,7 @@ int option_chain_head_dereference (ptr, file, line)
 	const char *file;
 	int line;
 {
+	int i;
 	struct option_chain_head *option_chain_head;
 	pair car, cdr;
 
@@ -154,6 +161,7 @@ int group_allocate (ptr, file, line)
 	const char *file;
 	int line;
 {
+	int size;
 	struct group *g;
 
 	if (!ptr) {
@@ -214,6 +222,7 @@ int group_dereference (ptr, file, line)
 	const char *file;
 	int line;
 {
+	int i;
 	struct group *group;
 
 	if (!ptr || !*ptr) {
@@ -301,27 +310,31 @@ void free_name_server (ptr, file, line)
 	const char *file;
 	int line;
 {
-	dfree ((void *)ptr, file, line);
+	dfree ((VOIDPTR)ptr, file, line);
 }
 
-struct option *new_option (name, file, line)
-	const char *name;
+struct option *new_option (file, line)
 	const char *file;
 	int line;
 {
-	struct option *rval;
-	int len;
-
-	len = strlen(name);
-
-	rval = dmalloc(sizeof(struct option) + len + 1, file, line);
-
-	if(rval) {
-		memcpy(rval + 1, name, len);
-		rval->name = (char *)(rval + 1);
-	}
-
+	struct option *rval =
+		dmalloc (sizeof (struct option), file, line);
+	if (rval)
+		memset (rval, 0, sizeof *rval);
 	return rval;
+}
+
+void free_option (ptr, file, line)
+	struct option *ptr;
+	const char *file;
+	int line;
+{
+/* XXX have to put all options on heap before this is possible. */
+#if 0
+	if (ptr -> name)
+		dfree ((VOIDPTR)option -> name, file, line);
+	dfree ((VOIDPTR)ptr, file, line);
+#endif
 }
 
 struct universe *new_universe (file, line)
@@ -338,7 +351,7 @@ void free_universe (ptr, file, line)
 	const char *file;
 	int line;
 {
-	dfree ((void *)ptr, file, line);
+	dfree ((VOIDPTR)ptr, file, line);
 }
 
 void free_domain_search_list (ptr, file, line)
@@ -346,7 +359,7 @@ void free_domain_search_list (ptr, file, line)
 	const char *file;
 	int line;
 {
-	dfree ((void *)ptr, file, line);
+	dfree ((VOIDPTR)ptr, file, line);
 }
 
 void free_protocol (ptr, file, line)
@@ -354,7 +367,7 @@ void free_protocol (ptr, file, line)
 	const char *file;
 	int line;
 {
-	dfree ((void *)ptr, file, line);
+	dfree ((VOIDPTR)ptr, file, line);
 }
 
 void free_dhcp_packet (ptr, file, line)
@@ -362,7 +375,7 @@ void free_dhcp_packet (ptr, file, line)
 	const char *file;
 	int line;
 {
-	dfree ((void *)ptr, file, line);
+	dfree ((VOIDPTR)ptr, file, line);
 }
 
 struct client_lease *new_client_lease (file, line)
@@ -411,7 +424,7 @@ void free_pair (foo, file, line)
 {
 	foo -> cdr = free_pairs;
 	free_pairs = foo;
-	dmalloc_reuse (free_pairs, __FILE__, __LINE__, 0);
+	dmalloc_reuse (free_pairs, (char *)0, 0, 0);
 }
 
 #if defined (DEBUG_MEMORY_LEAKAGE) || \
@@ -485,7 +498,7 @@ void free_expression (expr, file, line)
 {
 	expr -> data.not = free_expressions;
 	free_expressions = expr;
-	dmalloc_reuse (free_expressions, __FILE__, __LINE__, 0);
+	dmalloc_reuse (free_expressions, (char *)0, 0, 0);
 }
 
 #if defined (DEBUG_MEMORY_LEAKAGE) || \
@@ -691,12 +704,9 @@ int buffer_allocate (ptr, len, file, line)
 {
 	struct buffer *bp;
 
-	/* XXXSK: should check for bad ptr values, otherwise we 
-		  leak memory if they are wrong */
 	bp = dmalloc (len + sizeof *bp, file, line);
 	if (!bp)
 		return 0;
-	/* XXXSK: both of these initializations are unnecessary */
 	memset (bp, 0, sizeof *bp);
 	bp -> refcnt = 0;
 	return buffer_reference (ptr, bp, file, line);
@@ -735,6 +745,8 @@ int buffer_dereference (ptr, file, line)
 	const char *file;
 	int line;
 {
+	struct buffer *bp;
+
 	if (!ptr) {
 		log_error ("%s(%d): null pointer", file, line);
 #if defined (POINTER_DEBUG)
@@ -822,6 +834,8 @@ int dns_host_entry_dereference (ptr, file, line)
 	const char *file;
 	int line;
 {
+	struct dns_host_entry *bp;
+
 	if (!ptr || !*ptr) {
 		log_error ("%s(%d): null pointer", file, line);
 #if defined (POINTER_DEBUG)
@@ -874,7 +888,7 @@ int option_state_allocate (ptr, file, line)
 #endif
 	}
 
-	size = sizeof **ptr + (universe_count - 1) * sizeof (void *);
+	size = sizeof **ptr + (universe_count - 1) * sizeof (VOIDPTR);
 	*ptr = dmalloc (size, file, line);
 	if (*ptr) {
 		memset (*ptr, 0, size);
@@ -957,7 +971,6 @@ int option_state_dereference (ptr, file, line)
 		    universes [i] -> option_state_dereference)
 			((*(universes [i] -> option_state_dereference))
 			 (universes [i], options, file, line));
-
 	dfree (options, file, line);
 	return 1;
 }
@@ -1024,6 +1037,7 @@ int packet_allocate (ptr, file, line)
 	const char *file;
 	int line;
 {
+	int size;
 	struct packet *p;
 
 	if (!ptr) {
@@ -1134,7 +1148,7 @@ int packet_dereference (ptr, file, line)
 	}
 	packet -> raw = (struct dhcp_packet *)free_packets;
 	free_packets = packet;
-	dmalloc_reuse (free_packets, __FILE__, __LINE__, 0);
+	dmalloc_reuse (free_packets, (char *)0, 0, 0);
 	return 1;
 }
 
@@ -1143,6 +1157,7 @@ int dns_zone_allocate (ptr, file, line)
 	const char *file;
 	int line;
 {
+	int size;
 	struct dns_zone *d;
 
 	if (!ptr) {
@@ -1262,15 +1277,14 @@ int binding_scope_reference (ptr, bp, file, line)
 /* Make a copy of the data in data_string, upping the buffer reference
    count if there's a buffer. */
 
-void
-data_string_copy(struct data_string *dest, const struct data_string *src,
-		 const char *file, int line)
+void data_string_copy (dest, src, file, line)
+	struct data_string *dest;
+	struct data_string *src;
+	const char *file;
+	int line;
 {
-	if (src -> buffer) {
+	if (src -> buffer)
 		buffer_reference (&dest -> buffer, src -> buffer, file, line);
-	} else {
-		dest->buffer = NULL;
-	}
 	dest -> data = src -> data;
 	dest -> terminated = src -> terminated;
 	dest -> len = src -> len;
@@ -1289,14 +1303,13 @@ void data_string_forget (data, file, line)
 	memset (data, 0, sizeof *data);
 }
 
-/* If the data_string is larger than the specified length, reduce 
-   the data_string to the specified size. */
+/* Make a copy of the data in data_string, upping the buffer reference
+   count if there's a buffer. */
 
 void data_string_truncate (dp, len)
 	struct data_string *dp;
 	int len;
 {
-	/* XXX: do we need to consider the "terminated" flag in the check? */
 	if (len < dp -> len) {
 		dp -> terminated = 0;
 		dp -> len = len;

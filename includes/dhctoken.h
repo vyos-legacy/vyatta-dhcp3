@@ -3,7 +3,7 @@
    Tokens for config file lexer and parser. */
 
 /*
- * Copyright (c) 2004,2007-2008 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1996-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -43,7 +43,6 @@ enum dhcp_token {
 	LPAREN = '(',
 	RPAREN = ')',
 	EQUAL = '=',
-	TILDE = '~',
 	BANG = '!',
 	PERCENT = '%',
  	PLUS = '+',
@@ -175,7 +174,7 @@ enum dhcp_token {
 	COMMUNICATIONS_INTERRUPTED = 376,
 	POTENTIAL_CONFLICT = 377,
 	RECOVER = 378,
-	TOKEN_FDDI = 379,
+	FDDI = 379,
 	AUTHORITATIVE = 380,
 	TOKEN_NOT = 381,
 	AUTHENTICATION = 383,
@@ -224,7 +223,7 @@ enum dhcp_token {
 	MCLT = 428,
 	SPLIT = 429,
 	AT = 430,
-	TOKEN_NO = 431,
+	NO = 431,
 	TOKEN_DELETE = 432,
 	NS_UPDATE = 433,
 	UPDATE = 434,
@@ -303,56 +302,14 @@ enum dhcp_token {
 	TOKEN_HELP = 606,
 	END_OF_FILE = 607,
 	RECOVER_WAIT = 608,
-	TOKEN_SERVER = 609,
+	SERVER = 609,
 	CONNECT = 610,
 	REMOVE = 611,
 	REFRESH = 612,
 	DOMAIN_NAME = 613,
 	DO_FORWARD_UPDATE = 614,
 	KNOWN_CLIENTS = 615,
-	ATSFP = 616,
-	LCASE = 617,
-	UCASE = 618,
-	WIDTH = 619,
-	LENGTH = 620,
-	HASH = 621,
-	SIZE = 622,
-	EPOCH = 623,
-	DB_TIME_FORMAT = 624,
-	LOCAL = 625,
-	MAX_LEASE_MISBALANCE = 626,
-	MAX_LEASE_OWNERSHIP = 627,
-	MAX_BALANCE = 628,
-	MIN_BALANCE = 629,
-	DOMAIN_LIST = 630,
-	LEASEQUERY = 631,
-	EXECUTE = 632,
-	IP6_ADDRESS = 633,
-	FIXED_ADDR6 = 634,
-	COMPRESSED = 635,
-	SUBNET6 = 636,
-	HOST_IDENTIFIER = 637,
-	IA_NA = 638,
-	IA_TA = 639,
-	IA_PD = 640,
-	IAADDR = 641,
-	IAPREFIX = 642,
-	LEASE6 = 643,
-	PREFERRED_LIFE = 644,
-	MAX_LIFE = 645,
-	DEFAULT_DUID = 646,
-	SERVER_DUID = 647,
-	LLT = 648,
-	EN = 649,
-	LL = 650,
-	RANGE6 = 651,
-	WHITESPACE = 652,
-	TOKEN_ALSO = 653,
-	AFTER = 654,
-	ZEROLEN = 655,
-	TEMPORARY = 656,
-	PREFIX6 = 657,
-	FIXED_PREFIX6 = 658
+	ATSFP = 616
 };
 
 #define is_identifier(x)	((x) >= FIRST_TOKEN &&	\

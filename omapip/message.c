@@ -3,7 +3,7 @@
    Subroutines for dealing with message objects. */
 
 /*
- * Copyright (c) 2004,2007 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1999-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -31,8 +31,6 @@
  * see ``http://www.vix.com''.   To learn more about Nominum, Inc., see
  * ``http://www.nominum.com''.
  */
-
-#include "dhcpd.h"
 
 #include <omapip/omapip_p.h>
 
@@ -211,6 +209,8 @@ isc_result_t omapi_message_get_value (omapi_object_t *h,
 isc_result_t omapi_message_destroy (omapi_object_t *h,
 				    const char *file, int line)
 {
+	int i;
+
 	omapi_message_object_t *m;
 	if (h -> type != omapi_type_message)
 		return ISC_R_INVALIDARG;
@@ -261,6 +261,8 @@ isc_result_t omapi_message_stuff_values (omapi_object_t *c,
 					 omapi_object_t *id,
 					 omapi_object_t *m)
 {
+	int i;
+
 	if (m -> type != omapi_type_message)
 		return ISC_R_INVALIDARG;
 

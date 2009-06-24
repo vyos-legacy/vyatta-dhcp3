@@ -3,7 +3,7 @@
    Functions for maintaining handles on objects. */
 
 /*
- * Copyright (c) 2004-2007 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2006 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1999-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -32,7 +32,10 @@
  * ``http://www.nominum.com''.
  */
 
-#include "dhcpd.h"
+#ifndef lint
+static char ocopyright[] =
+"$Id: handle.c,v 1.6.2.4 2006/02/22 22:43:27 dhankins Exp $ Copyright 2004-2006 Internet Systems Consortium.";
+#endif
 
 #include <omapip/omapip_p.h>
 
@@ -73,6 +76,7 @@ static isc_result_t omapi_handle_table_enclose (omapi_handle_table_t **);
 
 isc_result_t omapi_object_handle (omapi_handle_t *h, omapi_object_t *o)
 {
+	int tabix;
 	isc_result_t status;
 
 	if (o -> handle) {
@@ -281,6 +285,7 @@ static isc_result_t omapi_handle_lookup_in (omapi_object_t **o,
 isc_result_t omapi_handle_td_lookup (omapi_object_t **obj,
 				     omapi_typed_data_t *handle)
 {
+	isc_result_t status;
 	omapi_handle_t h;
 
 	if (handle -> type == omapi_datatype_int)
