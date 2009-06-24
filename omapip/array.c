@@ -3,7 +3,7 @@
    Subroutines that support the omapi extensible array type. */
 
 /*
- * Copyright (c) 2004-2006 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2007 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 2001-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -32,10 +32,7 @@
  * ``http://www.nominum.com''.
  */
 
-#ifndef lint
-static char ocopyright[] =
-"$Id: array.c,v 1.1.2.5 2006/02/22 22:43:27 dhankins Exp $ Copyright 2004-2006 Internet Systems Consortium.";
-#endif
+#include "dhcpd.h"
 
 #include <omapip/omapip_p.h>
 
@@ -46,7 +43,6 @@ isc_result_t omapi_array_allocate (omapi_array_t **array,
 				   omapi_array_deref_t deref,
 				   const char *file, int line)
 {
-	isc_result_t status;
 	omapi_array_t *aptr;
 
 	if (!array || *array)
@@ -63,7 +59,6 @@ isc_result_t omapi_array_allocate (omapi_array_t **array,
 isc_result_t omapi_array_free (omapi_array_t **array,
 			       const char *file, int line)
 {
-	isc_result_t status;
 	omapi_array_t *aptr;
 	int i;
 
@@ -165,4 +160,3 @@ isc_result_t omapi_array_lookup (char **ptr, omapi_array_t *array, int index,
 	return ISC_R_NOTFOUND;
 }
 
-OMAPI_ARRAY_TYPE_DECL(omapi_object, omapi_object_t);

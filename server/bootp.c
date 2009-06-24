@@ -3,7 +3,7 @@
    BOOTP Protocol support. */
 
 /*
- * Copyright (c) 2004-2005 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004,2005,2007 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1995-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -32,12 +32,8 @@
  * ``http://www.nominum.com''.
  */
 
-#ifndef lint
-static char copyright[] =
-"$Id: bootp.c,v 1.69.2.11 2005/05/18 19:54:17 dhankins Exp $ Copyright (c) 2004 Internet Systems Consortium.  All rights reserved.\n";
-#endif /* not lint */
-
 #include "dhcpd.h"
+#include <errno.h>
 
 #if defined (TRACING)
 # define send_packet trace_packet_send
@@ -90,6 +86,7 @@ void bootp (packet)
 
 	if (!lease || ((lease->flags & STATIC_LEASE) == 0)) {
 		struct host_decl *h;
+
 		/* We didn't find an applicable fixed-address host
 		   declaration.  Just in case we may be able to dynamically
 		   assign an address, see if there's a host declaration
@@ -121,12 +118,39 @@ void bootp (packet)
 					packet -> shared_network -> pools,
 					&peer_has_leases);
 
-		if (lease)
-			ack_lease (packet, lease, 0, 0, msgbuf, 0, hp);
-		else
-			log_info ("%s: BOOTP from dynamic client and no "
-				  "dynamic leases", msgbuf);
+		if (lease == NULL) {
+			log_info("%s: BOOTP from dynamic client and no "
+				 "dynamic leases", msgbuf);
+			goto out;
+		}
 
+#if defined(FAILOVER_PROTOCOL)
+		if ((lease->pool != NULL) &&
+		    (lease->pool->failover_peer != NULL)) {
+			dhcp_failover_state_t *peer;
+
+			peer = lease->pool->failover_peer;
+
+			/* If we are in a failover state that bars us from
+			 * answering, do not do so.
+			 * If we are in a cooperative state, load balance
+			 * (all) responses.
+			 */
+			if ((peer->service_state == not_responding) ||
+			    (peer->service_state == service_startup)) {
+				log_info("%s: not responding%s",
+					 msgbuf, peer->nrr);
+				goto out;
+			} else if((peer->service_state == cooperating) &&
+				  !load_balance_mine(packet, peer)) {
+				log_info("%s: load balance to peer %s",
+					 msgbuf, peer->name);
+				goto out;
+			}
+		}
+#endif
+
+		ack_lease (packet, lease, 0, 0, msgbuf, 0, hp);
 		goto out;
 	}
 
@@ -194,7 +218,7 @@ void bootp (packet)
 	       lookup_option (&server_universe, options,
 			      SV_ALWAYS_REPLY_RFC1048), MDL))) {
 		memcpy (outgoing.raw -> options,
-			packet -> raw -> options, DHCP_OPTION_LEN);
+			packet -> raw -> options, DHCP_MAX_OPTION_LEN);
 		outgoing.packet_length = BOOTP_MIN_LEN;
 	} else {
 
@@ -210,8 +234,9 @@ void bootp (packet)
 				     lease -> subnet -> netmask.iabuf,
 				     lease -> subnet -> netmask.len,
 				     0, 0, MDL)) {
-					oc -> option =
-						dhcp_universe.options [i];
+					option_code_hash_lookup(&oc->option,
+							dhcp_universe.code_hash,
+								&i, 0, MDL);
 					save_option (&dhcp_universe,
 						     options, oc);
 				}
@@ -271,11 +296,12 @@ void bootp (packet)
 			memcpy (&raw.siaddr, d1.data, 4);
 		data_string_forget (&d1, MDL);
 	} else {
-		if (lease -> subnet -> shared_network -> interface)
-			raw.siaddr = (lease -> subnet -> shared_network ->
-				      interface -> primary_address);
-		else
-			raw.siaddr = packet -> interface -> primary_address;
+		if ((lease->subnet->shared_network->interface != NULL) &&
+		    lease->subnet->shared_network->interface->address_count)
+		    raw.siaddr =
+			lease->subnet->shared_network->interface->addresses[0];
+		else if (packet->interface->address_count)
+			raw.siaddr = packet->interface->addresses[0];
 	}
 
 	raw.giaddr = packet -> raw -> giaddr;
@@ -325,7 +351,14 @@ void bootp (packet)
 	hto.hlen = packet -> raw -> hlen + 1;
 	memcpy (&hto.hbuf [1], packet -> raw -> chaddr, packet -> raw -> hlen);
 
-	from = packet -> interface -> primary_address;
+	if (packet->interface->address_count) {
+		from = packet->interface->addresses[0];
+	} else {
+		log_error("%s: Interface %s appears to have no IPv4 "
+			  "addresses, and so dhcpd cannot select a source "
+			  "address.", msgbuf, packet->interface->name);
+		goto out;
+	}
 
 	/* Report what we're doing... */
 	log_info ("%s", msgbuf);

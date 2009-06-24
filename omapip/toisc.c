@@ -3,7 +3,7 @@
    Convert non-ISC result codes to ISC result codes. */
 
 /*
- * Copyright (c) 2004 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004,2007 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 2001-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -32,9 +32,13 @@
  * ``http://www.nominum.com''.
  */
 
+#include "dhcpd.h"
+
 #include <omapip/omapip_p.h>
 #include "arpa/nameser.h"
 #include "minires/minires.h"
+
+#include <errno.h>
 
 isc_result_t ns_rcode_to_isc (int nsr)
 {

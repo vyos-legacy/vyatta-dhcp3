@@ -32,7 +32,8 @@
  */
 
 /*
- * Portions Copyright (c) 2004 by Internet Systems Consortium, Inc. ("ISC")
+ * Portions Copyright (c) 2004,2007-2008 by Internet Systems Consortium,
+ *                                          Inc. ("ISC")
  * Portions Copyright (c) 1995-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -56,11 +57,13 @@
 
 /*
  *	@(#)resolv.h	8.1 (Berkeley) 6/2/93
- *	$Id: resolv.h,v 1.3.2.1 2004/06/10 17:59:37 dhankins Exp $
+ *	$Id: resolv.h,v 1.6 2008/01/24 02:43:05 each Exp $
  */
 
 #ifndef _RESOLV_H_
 #define	_RESOLV_H_
+
+#include <sys/types.h>
 
 /*
  * This used to be defined in res_query.c, now it's in herror.c.

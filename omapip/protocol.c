@@ -3,7 +3,7 @@
    Functions supporting the object management protocol... */
 
 /*
- * Copyright (c) 2004-2006 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2007 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1999-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -32,10 +32,7 @@
  * ``http://www.nominum.com''.
  */
 
-#ifndef lint
-static char ocopyright[] =
-"$Id: protocol.c,v 1.25.2.11 2006/02/22 22:43:27 dhankins Exp $ Copyright 2004-2006 Internet Systems Consortium.";
-#endif
+#include "dhcpd.h"
 
 #include <omapip/omapip_p.h>
 
@@ -150,6 +147,10 @@ isc_result_t omapi_protocol_send_intro (omapi_object_t *h,
 	return ISC_R_SUCCESS;
 }
 
+#ifdef DEBUG_PROTOCOL
+extern const char *omapi_message_op_name(int);
+#endif /* DEBUG_PROTOCOL */
+
 isc_result_t omapi_protocol_send_message (omapi_object_t *po,
 					  omapi_object_t *id,
 					  omapi_object_t *mo,
@@ -161,7 +162,6 @@ isc_result_t omapi_protocol_send_message (omapi_object_t *po,
 	omapi_remote_auth_t *ra;
 	omapi_value_t *signature;
 	isc_result_t status;
-	u_int32_t foo;
 	unsigned auth_len;
 
 	if (po -> type != omapi_type_protocol ||
@@ -176,9 +176,9 @@ isc_result_t omapi_protocol_send_message (omapi_object_t *po,
 	om = (omapi_message_object_t *)omo;
 
 #ifdef DEBUG_PROTOCOL
-	log_debug ("omapi_protocol_send_message()"
-		   "op=%ld  handle=%#lx  id=%#lx  rid=%#lx",
-		   (long)m -> op,
+	log_debug ("omapi_protocol_send_message(): "
+		   "op=%s  handle=%#lx  id=%#lx  rid=%#lx",
+		   omapi_message_op_name (m->op),
 		   (long)(m -> object ? m -> object -> handle : m -> handle),
 		   (long)p -> next_xid, (long)m -> rid);
 #endif
@@ -410,7 +410,7 @@ isc_result_t omapi_protocol_signal_handler (omapi_object_t *h,
 	    dmalloc_dump_outstanding ();
 #endif
 #if defined (DEBUG_RC_HISTORY_EXHAUSTIVELY)
-	    dump_rc_history ();
+	    dump_rc_history (h);
 #endif
 	    for (m = omapi_registered_messages; m; m = m -> next) {
 		if (m -> protocol_object == p) {
@@ -418,6 +418,9 @@ isc_result_t omapi_protocol_signal_handler (omapi_object_t *h,
 			omapi_signal (m -> object, "disconnect");
 		}
 	    }
+
+	    /* XXX */
+	    return ISC_R_SUCCESS;
 	}
 
 	/* Not a signal we recognize? */
@@ -492,7 +495,7 @@ isc_result_t omapi_protocol_signal_handler (omapi_object_t *h,
 			dmalloc_dump_outstanding ();
 #endif
 #if defined (DEBUG_RC_HISTORY_EXHAUSTIVELY)
-			dump_rc_history ();
+			dump_rc_history (h);
 #endif
 #if defined (DEBUG_MEMORY_LEAKAGE)
 		}
@@ -750,7 +753,7 @@ isc_result_t omapi_protocol_signal_handler (omapi_object_t *h,
 		dmalloc_dump_outstanding ();
 #endif
 #if defined (DEBUG_RC_HISTORY_EXHAUSTIVELY)
-		dump_rc_history ();
+		dump_rc_history (h);
 #endif
 #if defined (DEBUG_MEMORY_LEAKAGE)
 		previous_outstanding = 0xDEADBEEF;
@@ -940,8 +943,6 @@ isc_result_t omapi_protocol_stuff_values (omapi_object_t *c,
 					  omapi_object_t *id,
 					  omapi_object_t *p)
 {
-	int i;
-
 	if (p -> type != omapi_type_protocol)
 		return ISC_R_INVALIDARG;
 
@@ -1128,8 +1129,6 @@ isc_result_t omapi_protocol_listener_stuff (omapi_object_t *c,
 					    omapi_object_t *id,
 					    omapi_object_t *p)
 {
-	int i;
-
 	if (p -> type != omapi_type_protocol_listener)
 		return ISC_R_INVALIDARG;
 

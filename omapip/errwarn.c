@@ -4,7 +4,7 @@
 
 /*
  * Copyright (c) 1995 RadioMail Corporation.
- * Copyright (c) 2004 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004,2007 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1996-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -31,13 +31,11 @@
  * with Vixie Laboratories.
  */
 
-#ifndef lint
-static char copyright[] =
-"$Id: errwarn.c,v 1.9.2.3 2004/09/30 20:38:32 dhankins Exp $ Copyright (c) 2004 Internet Systems Consortium.  All rights reserved.\n";
-#endif /* not lint */
+#include "dhcpd.h"
 
 #include <omapip/omapip_p.h>
 #include <errno.h>
+#include <syslog.h>
 
 #ifdef DEBUG
 int log_perror = -1;

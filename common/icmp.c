@@ -4,7 +4,7 @@
    responses. */
 
 /*
- * Copyright (c) 2004 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004,2007 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1996-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -33,11 +33,6 @@
  * ``http://www.nominum.com''.
  */
 
-#ifndef lint
-static char copyright[] =
-"$Id: icmp.c,v 1.30.2.6 2004/06/10 17:59:18 dhankins Exp $ Copyright (c) 2004 Internet Systems Consortium.  All rights reserved.\n";
-#endif /* not lint */
-
 #include "dhcpd.h"
 #include "netinet/ip.h"
 #include "netinet/ip_icmp.h"
@@ -61,11 +56,7 @@ void icmp_startup (routep, handler)
 {
 	struct protoent *proto;
 	int protocol = 1;
-	struct sockaddr_in from;
-	int fd;
 	int state;
-	struct icmp_state *new;
-	omapi_object_t *h;
 	isc_result_t result;
 
 	/* Only initialize icmp once. */
@@ -167,7 +158,7 @@ int icmp_echorequest (addr)
 	icmp.icmp_code = 0;
 	icmp.icmp_cksum = 0;
 	icmp.icmp_seq = 0;
-#ifdef PTRSIZE_64BIT
+#if SIZEOF_STRUCT_IADDR_P == 8
 	icmp.icmp_id = (((u_int32_t)(u_int64_t)addr) ^
   			(u_int32_t)(((u_int64_t)addr) >> 32));
 #else
@@ -284,7 +275,6 @@ isc_result_t icmp_echoreply (h)
 void trace_icmp_input_input (trace_type_t *ttype, unsigned length, char *buf)
 {
 	struct iaddr *ia;
-	unsigned len;
 	u_int8_t *icbuf;
 	ia = (struct iaddr *)buf;
 	ia->len = ntohl(ia->len);

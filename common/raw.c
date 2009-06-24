@@ -1,4 +1,4 @@
-/* socket.c
+/* raw.c
 
    BSD raw socket interface code... */
 
@@ -16,7 +16,7 @@
    Sigh. */
 
 /*
- * Copyright (c) 2004 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004,2007 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1995-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -44,11 +44,6 @@
  * see ``http://www.vix.com''.   To learn more about Nominum, Inc., see
  * ``http://www.nominum.com''.
  */
-
-#ifndef lint
-static char copyright[] =
-"$Id: raw.c,v 1.17.2.2 2004/06/10 17:59:20 dhankins Exp $ Copyright (c) 2004 Internet Systems Consortium.  All rights reserved.\n";
-#endif /* not lint */
 
 #include "dhcpd.h"
 

@@ -3,7 +3,7 @@
    Memory allocation for the DHCP server... */
 
 /*
- * Copyright (c) 2004-2006 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2007 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1996-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -31,11 +31,6 @@
  * see ``http://www.vix.com''.   To learn more about Nominum, Inc., see
  * ``http://www.nominum.com''.
  */
-
-#ifndef lint
-static char copyright[] =
-"$Id: salloc.c,v 1.2.2.8 2006/02/22 22:43:27 dhankins Exp $ Copyright (c) 2004-2006 Internet Systems Consortium.  All rights reserved.\n";
-#endif /* not lint */
 
 #include "dhcpd.h"
 #include <omapip/omapip_p.h>
@@ -142,6 +137,7 @@ isc_result_t dhcp_lease_get (omapi_object_t **lp,
 
 OMAPI_OBJECT_ALLOC (lease, struct lease, dhcp_type_lease)
 OMAPI_OBJECT_ALLOC (class, struct class, dhcp_type_class)
+OMAPI_OBJECT_ALLOC (subclass, struct class, dhcp_type_subclass)
 OMAPI_OBJECT_ALLOC (pool, struct pool, dhcp_type_pool)
 
 #if !defined (NO_HOST_FREES)	/* Scary debugging mode - don't enable! */
