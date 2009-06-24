@@ -3,7 +3,7 @@
    Buffer access functions for the object management protocol... */
 
 /*
- * Copyright (c) 2004-2005 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004,2005,2007 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1999-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -32,7 +32,10 @@
  * ``http://www.nominum.com''.
  */
 
+#include "dhcpd.h"
+
 #include <omapip/omapip_p.h>
+#include <errno.h>
 
 #if defined (TRACING)
 static void trace_connection_input_input (trace_type_t *, unsigned, char *);
@@ -438,9 +441,7 @@ isc_result_t omapi_connection_writer (omapi_object_t *h)
 	int bytes_written;
 	unsigned first_byte;
 	omapi_buffer_t *buffer;
-	unsigned char *bufp;
 	omapi_connection_object_t *c;
-	isc_result_t status;
 
 	if (!h || h -> type != omapi_type_connection)
 		return ISC_R_INVALIDARG;
@@ -502,6 +503,7 @@ isc_result_t omapi_connection_writer (omapi_object_t *h)
 
 #if defined (TRACING)
 			if (trace_record ()) {
+				isc_result_t status;
 				trace_iov_t iov [2];
 				int32_t connect_index;
 				
@@ -575,7 +577,6 @@ isc_result_t omapi_connection_put_uint32 (omapi_object_t *c,
 					  u_int32_t value)
 {
 	u_int32_t inbuf;
-	isc_result_t status;
 
 	inbuf = htonl (value);
 	
@@ -602,7 +603,6 @@ isc_result_t omapi_connection_put_uint16 (omapi_object_t *c,
 					  u_int32_t value)
 {
 	u_int16_t inbuf;
-	isc_result_t status;
 
 	inbuf = htons (value);
 	

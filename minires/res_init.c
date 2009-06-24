@@ -52,7 +52,7 @@
  */
 
 /*
- * Portions Copyright (c) 2004 by Internet Systems Consortium, Inc. ("ISC")
+ * Portions Copyright (c) 2004,2007 by Internet Systems Consortium, Inc. ("ISC")
  * Portions Copyright (c) 1995-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -76,7 +76,7 @@
 
 #if defined(LIBC_SCCS) && !defined(lint)
 static const char sccsid[] = "@(#)res_init.c	8.1 (Berkeley) 6/7/93";
-static const char rcsid[] = "$Id: res_init.c,v 1.4.2.2 2004/06/10 17:59:43 dhankins Exp $";
+static const char rcsid[] = "$Id: res_init.c,v 1.11 2008/02/28 21:21:56 dhankins Exp $";
 #endif /* LIBC_SCCS and not lint */
 
 #include <sys/types.h>
@@ -99,7 +99,6 @@ static const char rcsid[] = "$Id: res_init.c,v 1.4.2.2 2004/06/10 17:59:43 dhank
 /* Options.  Should all be left alone. */
 #define RESOLVSORT
 #define RFC1535
-#define DEBUG
 
 static void res_setoptions (res_state, const char *, const char *);
 
@@ -154,7 +153,8 @@ res_ninit(res_state statp) {
 int
 minires_vinit(res_state statp, int preinit) {
 	register FILE *fp;
-	register char *cp, **pp;
+	char *cp;
+	register char **pp;
 	register int n;
 	char buf[BUFSIZ];
 	int nserv = 0;    /* number of nameserver records read from file */
@@ -320,7 +320,7 @@ minires_vinit(res_state statp, int preinit) {
 			    break;
 			net = cp;
 			while (*cp && !ISSORTMASK(*cp) && *cp != ';' &&
-			       isascii(*cp) && !isspace(*cp))
+			       isascii((int)*cp) && !isspace((int)*cp))
 				cp++;
 			n = *cp;
 			*cp = 0;
@@ -330,7 +330,7 @@ minires_vinit(res_state statp, int preinit) {
 				*cp++ = n;
 				net = cp;
 				while (*cp && *cp != ';' &&
-					isascii(*cp) && !isspace(*cp))
+					isascii((int)*cp) && !isspace((int)*cp))
 				    cp++;
 				n = *cp;
 				*cp = 0;
@@ -388,14 +388,12 @@ minires_vinit(res_state statp, int preinit) {
 			dots--;
 		}
 		*pp = NULL;
-#ifdef DEBUG
 		if (statp->options & RES_DEBUG) {
 			printf(";; res_init()... default dnsrch list:\n");
 			for (pp = statp->dnsrch; *pp; pp++)
 				printf(";;\t%s\n", *pp);
 			printf(";;\t..END..\n");
 		}
-#endif
 #endif /* !RFC1535 */
 	}
 
@@ -410,11 +408,9 @@ res_setoptions(res_state statp, const char *options, const char *source) {
 	const char *cp = options;
 	int i;
 
-#ifdef DEBUG
 	if (statp->options & RES_DEBUG)
 		printf(";; res_setoptions(\"%s\", \"%s\")...\n",
 		       options, source);
-#endif
 	while (*cp) {
 		/* skip leading and inner runs of spaces */
 		while (*cp == ' ' || *cp == '\t')
@@ -426,10 +422,8 @@ res_setoptions(res_state statp, const char *options, const char *source) {
 				statp->ndots = i;
 			else
 				statp->ndots = RES_MAXNDOTS;
-#ifdef DEBUG
 			if (statp->options & RES_DEBUG)
 				printf(";;\tndots=%d\n", statp->ndots);
-#endif
 		} else if (!strncmp(cp, "timeout:", sizeof("timeout:") - 1)) {
 			i = atoi(cp + sizeof("timeout:") - 1);
 			if (i <= RES_MAXRETRANS)
@@ -443,14 +437,12 @@ res_setoptions(res_state statp, const char *options, const char *source) {
 			else
 				statp->retry = RES_MAXRETRY;
 		} else if (!strncmp(cp, "debug", sizeof("debug") - 1)) {
-#ifdef DEBUG
 			if (!(statp->options & RES_DEBUG)) {
 				printf(";; res_setoptions(\"%s\", \"%s\")..\n",
 				       options, source);
 				statp->options |= RES_DEBUG;
 			}
 			printf(";;\tdebug\n");
-#endif
 		} else if (!strncmp(cp, "inet6", sizeof("inet6") - 1)) {
 			statp->options |= RES_USE_INET6;
 		} else if (!strncmp(cp, "rotate", sizeof("rotate") - 1)) {

@@ -3,7 +3,7 @@
    The dhcpctl remote object. */
 
 /*
- * Copyright (c) 2004 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004,2007 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1999-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -32,11 +32,7 @@
  * ``http://www.nominum.com''.
  */
 
-#ifndef lint
-static char copyright[] =
-"$Id: remote.c,v 1.12.2.6 2004/06/10 17:59:24 dhankins Exp $ Copyright (c) 2004 Internet Systems Consortium.  All rights reserved.\n";
-#endif /* not lint */
-
+#include "dhcpd.h"
 #include <omapip/omapip_p.h>
 #include "dhcpctl.h"
 
@@ -122,8 +118,8 @@ dhcpctl_status dhcpctl_new_object (dhcpctl_handle *h,
 	isc_result_t status;
 
 	m = (dhcpctl_remote_object_t *)0;
-	status = omapi_object_allocate ((omapi_object_t **)&m,
-					dhcpctl_remote_type, 0, MDL);
+	status = omapi_object_allocate((omapi_object_t **)&m,
+				       dhcpctl_remote_type, 0, MDL);
 	if (status != ISC_R_SUCCESS)
 		return status;
 
@@ -354,8 +350,6 @@ isc_result_t dhcpctl_remote_stuff_values (omapi_object_t *c,
 					  omapi_object_t *id,
 					  omapi_object_t *p)
 {
-	int i;
-
 	if (p -> type != dhcpctl_remote_type)
 		return ISC_R_INVALIDARG;
 

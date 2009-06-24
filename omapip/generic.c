@@ -3,7 +3,7 @@
    Subroutines that support the generic object. */
 
 /*
- * Copyright (c) 2004-2006 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2007 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1999-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -32,10 +32,7 @@
  * ``http://www.nominum.com''.
  */
 
-#ifndef lint
-static char ocopyright[] =
-"$Id: generic.c,v 1.9.2.7 2006/02/22 22:43:27 dhankins Exp $ Copyright 2004-2006 Internet Systems Consortium.";
-#endif
+#include "dhcpd.h"
 
 #include <omapip/omapip_p.h>
 
@@ -292,7 +289,6 @@ isc_result_t omapi_generic_stuff_values (omapi_object_t *c,
 isc_result_t omapi_generic_clear_flags (omapi_object_t *o)
 {
 	int i;
-	isc_result_t status;
 	omapi_generic_object_t *g;
 
 	if (o -> type != omapi_type_generic)
