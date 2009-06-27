@@ -1,3 +1,13 @@
+vyatta-dhcp3 (3.0.6.dfsg-24+jenner2) unstable; urgency=low
+
+  * test
+  * Revert "Merge branch 'upstream' into jenner"
+  * Revert "Revert "Merge branch 'upstream' into jenner""
+  * modifications to get dhcp build to work and ignore not needed files
+  * Fix Vyatta related README line
+
+ -- Mohit Mehta <mohit.mehta@vyatta.com>  Fri, 26 Jun 2009 18:48:48 -0700
+
 vyatta-dhcp3 (3.0.6.dfsg-24+jenner1) unstable; urgency=low
 
   * UNRELEASED
