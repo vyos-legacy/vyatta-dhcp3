@@ -22,7 +22,7 @@
  */
 
 #ifndef lint
-static const char rcsid[] = "$Id: ns_name.c,v 1.1.2.5 2004/06/10 17:59:40 dhankins Exp $";
+static const char rcsid[] = "$Id: ns_name.c,v 1.2 2005/03/17 20:15:17 dhankins Exp $";
 #endif
 
 #include <sys/types.h>

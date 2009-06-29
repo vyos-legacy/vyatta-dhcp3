@@ -3,7 +3,7 @@
    Packet assembly code, originally contributed by Archie Cobbs. */
 
 /*
- * Copyright (c) 2004-2007 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004,2005,2007 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1996-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -30,11 +30,6 @@
  * users, without whose gracious and thorough help the checksum code would
  * still be disabled.
  */
-
-#ifndef lint
-static char copyright[] =
-"$Id: packet.c,v 1.40.2.8 2007/05/01 20:42:55 each Exp $ Copyright (c) 2004-2005 Internet Systems Consortium.  All rights reserved.\n";
-#endif /* not lint */
 
 #include "dhcpd.h"
 
@@ -147,7 +142,7 @@ void assemble_udp_ip_header (interface, buf, bufix,
 	ip.ip_len = htons(sizeof(ip) + sizeof(udp) + len);
 	ip.ip_id = 0;
 	ip.ip_off = 0;
-	ip.ip_ttl = IPDEFTTL;
+	ip.ip_ttl = 128;
 	ip.ip_p = IPPROTO_UDP;
 	ip.ip_sum = 0;
 	ip.ip_src.s_addr = from;
@@ -255,7 +250,7 @@ decode_udp_ip_header(struct interface_info *interface,
   if ((upp + sizeof(udp)) > endbuf)
 	  return -1;
 
-  /* Copy the UDP header into a stack alined structure for inspection. */
+  /* Copy the UDP header into a stack aligned structure for inspection. */
   memcpy(&udp, upp, sizeof(udp));
 
 #ifdef USERLAND_FILTER

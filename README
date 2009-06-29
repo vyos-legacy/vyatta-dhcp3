@@ -1,12 +1,9 @@
-This is a Debian Lenny package dhcp3-3.0.6.dfsg customized by Vyatta.
+      This is a ISC DHCP Distribution version 4.1.0 customized by Vyatta.
+	      Internet Systems Consortium DHCP Distribution
+		              Version 4.1.0
+			     5 December 2008
 
-
-
-	       Internet Systems Consortium DHCP Distribution
-	                      Version 3.0.6
-		              June 29, 2007
-
-			       README FILE
+			      README FILE
 
 You should read this file carefully before trying to install or use
 the ISC DHCP Distribution.
@@ -37,6 +34,8 @@ the ISC DHCP Distribution.
 	 5.6	 FreeBSD
 	 5.7	 NeXTSTEP
 	 5.8	 SOLARIS
+	 5.9	 AIX
+	 5.10	 MacOS X
 	6	SUPPORT
 	 6.1	 HOW TO REPORT BUGS
 
@@ -96,27 +95,15 @@ directory, it may not have up-to-date information).
 
 			    RELEASE STATUS
 
-This is ISC DHCP 3.0.6.
+This is ISC DHCP 4.1.0, which adds new DHCPv6 features omitted from
+ISC DHCP 4.0.0.
 
-ISC DHCP 3.0.6 is a maintenance release which seeks only to fix bugs
-present in versions 3.0.5 and prior.  No new features have been added,
-although if you run failover and are upgrading from 3.0.3 or prior,
-you should take careful note of the RELNOTES discussion on the new
-'atsfp' failover value.
+In this release, the DHCPv6 server should be fully functional on Linux,
+Solaris, or any BSD.  The DHCPv6 client should be similarly functional
+except on Solaris.
 
-In this release, the server and relay agent are currently fully
-functional on NetBSD, Linux systems with kernel version 2.2 or later,
-FreeBSD, OpenBSD, BSD/OS, Digital Tru64 Unix and Solaris.  The software
-will also run on AIX and HP-UX, but only supports a single network
-interface.  Ports also exist for QNX, SCO, NeXTStep, and MacOS X, but
-are not in wide use, with all that implies.   We are not aware of an
-easy way to get this software running on HP-UX.
-
-The DHCP client currently only knows how to configure the network on
-NetBSD, FreeBSD, OpenBSD, BSD/os, Linux, Solaris and NextStep.  The
-client depends on a system-dependent shell script to do network
-configuration - support for other operating systems is simply a matter
-of porting this shell script to the new platform.
+The DHCPv4 server, relay, and client, should be fully functional
+on Linux, Solaris, any BSD, HPUX, SCO, NextSTEP, and Irix.
 
 If you are running the DHCP distribution on a machine which is a
 firewall, or if there is a firewall between your DHCP server(s) and
@@ -145,12 +132,12 @@ information.   On Digital Unix, type ``man pfilt''.
 To build the DHCP Distribution, unpack the compressed tar file using
 the tar utility and the gzip command - type something like:
 
-	gunzip dhcp-3.0.6.tar.gz
-	tar xvf dhcp-3.0.6.tar
+	gunzip dhcp-4.1.0.tar.gz
+	tar xvf dhcp-4.1.0.tar
 
 			    CONFIGURING IT
 
-Now, cd to the dhcp-3.0.6 subdirectory that you've just created and
+Now, cd to the dhcp-4.1.0 subdirectory that you've just created and
 configure the source tree by typing:
 
 	./configure
@@ -332,6 +319,14 @@ Linux 2.1 and later kernels do not use SO_BINDTODEVICE or require the
 broadcast address hack, but do support multiple interfaces, using the
 Linux Packet Filter.
 
+			     LINUX: OpenWrt
+
+DHCP 4.1 has been tested on OpenWrt 7.09 and 8.09.  In keeping with
+standard practice, client/scripts now includes a dhclient-script file
+for OpenWrt.  However, this is not sufficient by itself to run dhcp on
+OpenWrt; a full OpenWrt package for DHCP is available at
+ftp://ftp.isc.org/isc/dhcp/dhcp-4.1.0-openwrt.tar.gz
+
 		    LINUX: 802.1q VLAN INTERFACES
 
 If you're using 802.1q vlan interfaces on Linux, it is necessary to
@@ -346,11 +341,14 @@ more information, consult the vconfig man pages.
 
 				 SCO
 
-SCO has the same problem as Linux (described earlier).  The thing is,
-SCO *really* doesn't want to let you add a host route to the all-ones
-broadcast address.
+ISC DHCP will now work correctly on newer versions of SCO out of the
+box (tested on OpenServer 5.05b, assumed to work on UnixWare 7).
 
-On more recent versions of SCO, you can do this:
+Older versions of SCO have the same problem as Linux (described earlier).
+The thing is, SCO *really* doesn't want to let you add a host route to
+the all-ones broadcast address.
+
+You can try the following:
 
   ifconfig net0 xxx.xxx.xxx.xxx netmask 0xNNNNNNNN broadcast 255.255.255.255
 
@@ -361,9 +359,7 @@ If this doesn't work, you can also try the following strange hack:
 Apparently this works because of an interaction between SCO's support
 for network classes and the weird netmask.  The 10.* network is just a
 dummy that can generally be assumed to be safe.   Don't ask why this
-works.   Just try it.   If it works for you, great.   SCO has added
-support for doing DHCP in a more sensible way, and it will appear in
-a future feature release.
+works.   Just try it.   If it works for you, great.
 
 				HP-UX
 
@@ -441,14 +437,10 @@ where iface is the name of the interface (e.g., ``ifconfig hme0 plumb'').
 
 It should be noted that Solaris versions from 2.6 onward include a
 DHCP client that you can run with ``/sbin/ifconfig iface dhcp start''
-rather than using the ISC DHCP client.  The feature set of the Solaris
-client is different (not necessarily better or worse) than that of the
-ISC client, but in most cases it will be a lot easier for you to just
-use that.  Please do not ask for help in using the Solaris DHCP client
-on Internet Systems Consortium mailing lists - that's why you're
-paying Sun the big bucks.   If you're having a problem with the
-Solaris client interoperating with the ISC dhcp server, that's another
-matter, but please check with Sun first.
+rather than using the ISC DHCP client, including DHCPv6.  Consequently,
+we don't believe there is a need for the client to run on Solaris, and
+have not engineered the needed DHCPv6 modifications for the dhclient-script.
+If you feel this is in error, or have a need, please contact us.
 
 				AIX
 
@@ -461,6 +453,30 @@ interfaces.)
 The ISC DHCP distribution does not include a dhclient-script for AIX--
 AIX comes with a DHCP client.  Contribution of a working dhclient-script
 for AIX would be welcome.
+
+			       MacOS X
+
+The MacOS X system uses a TCP/IP stack derived from FreeBSD with a
+user-friendly interface named the System Configuration Framework.
+As it includes a builtin DHCPv4 client (you are better just using that),
+this text is only about the DHCPv6 client (``dhclient -6 ...'').  The DNS
+configuration (domain search list and name servers' addresses) is managed
+by a System Configuration agent, not by /etc/resolv.conf (which is a link
+to /var/run/resolv.conf, which itself only reflects the internal state;
+the System Configuration agent's Dynamic Store).
+
+This means that modifying resolv.conf directly doesn't have the intended
+effect, so the macos script sample uses its own resolv.conf.dhclient6 in
+/var/run, and inserts the contents of this file into the System
+Configuration agent.  Because the System Configuration agent expects the
+prefix along with the configured address, and a default router, this is
+not usable (the DHCPv6 protocol does not today deliver this information).
+Instead, ifconfig is directly used for address configuration.
+
+Note the Dynamic Store (from which /var/run/resolv.conf is built) is
+recomputed from scratch when the current location/set is changed, for
+instance when a laptop is resumed from sleep. In this case running the
+dhclient-script could reinstall the resolv.conf.dhclient6 configuration.
 
 			       SUPPORT
 
@@ -479,7 +495,7 @@ responding to all other requests for support upon ISC's mailing lists
 on a best-effort basis.
 
 However, ISC DHCP has attracted a fairly sizable following on the
-Internet, which means that there are a lot of knowledgable users who
+Internet, which means that there are a lot of knowledgeable users who
 may be able to help you if you get stuck.  These people generally
 read the dhcp-users@isc.org mailing list.  Be sure to provide as much
 detail in your query as possible.

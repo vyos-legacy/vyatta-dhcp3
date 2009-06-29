@@ -1,6 +1,6 @@
-.\"	dhclient.8
+.\"	$Id: dhclient.8,v 1.30 2008/11/20 14:55:14 jreed Exp $
 .\"
-.\" Copyright (c) 2004-2007 by Internet Systems Consortium, Inc. ("ISC")
+.\" Copyright (c) 2004,2007-2008 by Internet Systems Consortium, Inc. ("ISC")
 .\" Copyright (c) 1996-2003 by Internet Software Consortium
 .\"
 .\" Permission to use, copy, modify, and distribute this software for any
@@ -21,13 +21,40 @@
 .\"   <info@isc.org>
 .\"   http://www.isc.org/
 .\"
-.\" $Id: dhclient.8,v 1.12.2.14 2007/05/01 20:42:55 each Exp $
+.\" Support and other services are available for ISC products - see
+.\" http://www.isc.org for more information.
 .\"
 .TH dhclient 8
 .SH NAME
 dhclient - Dynamic Host Configuration Protocol Client
 .SH SYNOPSIS
 .B dhclient
+[
+.B -4
+|
+.B -6
+]
+[
+.B -S
+]
+[
+.B -N
+[
+.B -N...
+]
+]
+[
+.B -T
+[
+.B -T...
+]
+]
+[
+.B -P
+[
+.B -P...
+]
+]
 [
 .B -p
 .I port
@@ -47,6 +74,8 @@ dhclient - Dynamic Host Configuration Protocol Client
 ]
 [
 .B -r
+|
+.B -x
 ]
 [
 .B -lf
@@ -82,6 +111,12 @@ relay
 .B -w
 ]
 [
+.B -v
+]
+[
+.B --version
+]
+[
 .I if0
 [
 .I ...ifN
@@ -102,6 +137,32 @@ DHCP protocol also provides a mechanism whereby a client can learn
 important details about the network to which it is attached, such as
 the location of a default router, the location of a name server, and
 so on.
+.PP
+If given the -4 command line argument (default), dhclient will use the
+DHCPv4 protocol to obtain an IPv4 address and configuration parameters.
+.PP
+If given the -6 command line argument, dhclient will use the DHCPv6
+protocol to obtain whatever IPv6 addresses are available along with
+configuration parameters. But with
+.B -S
+it uses Information-request to get only (i.e., without address)
+stateless configuration parameters.
+.PP
+The default DHCPv6 behavior is modified too with
+.B -T
+which asks for IPv6 temporary addresses, one set per
+.B -T
+flag.
+.B -P
+enables the IPv6 prefix delegation.
+As temporary addresses or prefix delegation disables the normal
+address query,
+.B -N
+restores it. Note it is not recommended to mix queries of different types
+together, or even to share the lease file between them.
+.PP
+If given the --version command line argument, dhclient will print its
+version number and exit.
 .PP
 On startup, dhclient reads the
 .IR dhclient.conf
@@ -164,7 +225,7 @@ flag may used.  It should be followed by the udp port number that
 dhclient should use.  This is mostly useful for debugging purposes.
 If a different port is specified for the client to listen on and
 transmit on, the client will also use a different destination port -
-one greater than the specified destination port.
+one less than the specified port.
 .PP
 The DHCP client normally transmits any protocol messages it sends
 before acquiring an IP address to, 255.255.255.255, the IP limited
@@ -173,6 +234,7 @@ the server transmit these messages to some other address.   This can
 be specified with the 
 .B -s
 flag, followed by the IP address or domain name of the destination.
+This feature is not supported by DHCPv6.
 .PP
 For testing purposes, the giaddr field of all packets that the client
 sends can be set using the
@@ -198,14 +260,17 @@ just as one would assign a variable in a shell.  Eg:
 .B -e
 .I IF_METRIC=1
 .PP
-The client normally prints a startup message and displays the
-protocol sequence to the standard error descriptor until it has
-acquired an address, and then only logs messages using the
+The client normally prints no output during its startup sequence.  It
+can be made to emit verbose messages displaying the startup sequence events
+until it has acquired an address by supplying the
+.B -v
+command line argument.  In either case, the client logs messages using
+the
 .B syslog (3)
-facility.   The
+facility.  A
 .B -q
-flag prevents any messages other than errors from being printed to the
-standard error descriptor.
+command line argument is provided for backwards compatibility, but since
+dhclient is quiet by default, it has no effect.
 .PP
 The client normally doesn't release the current lease as it is not
 required by the DHCP protocol.  Some cable ISPs require their clients
@@ -216,9 +281,31 @@ flag explicitly releases the current lease, and once the lease has been
 released, the client exits.
 .PP
 The
+.B -x
+flag tells any currently running client to exit gracefully without
+releasing leases first.
+.PP
+If the client is killed by a signal (for example at shutdown or reboot)
+it won't execute the
+.B dhclient-script (8)
+at exit. However if you shut the client down gracefully with
+.B -r
+or
+.B -x
+it will execute
+.B dhclient-script (8)
+at shutdown with the specific reason for calling the script set.
+.PP
+The
 .B -1
 flag will cause dhclient to try once to get a lease.  If it fails, dhclient
-exits with exit code two.
+exits with exit code two. In DHCPv6 the
+.B -1
+flag sets the max duration of the initial exchange to
+.I timeout
+(from
+.IR dhclient.conf ,
+default sixty seconds).
 .PP
 The DHCP client normally gets its configuration information from
 .B ETCDIR/dhclient.conf,

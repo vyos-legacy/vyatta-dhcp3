@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004,2007 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1999-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -22,10 +22,8 @@
  */
 
 #ifndef lint
-static const char rcsid[] = "$Id: ns_verify.c,v 1.5.2.3 2004/06/10 17:59:42 dhankins Exp $";
+static const char rcsid[] = "$Id: ns_verify.c,v 1.9 2007/09/05 17:32:10 dhankins Exp $";
 #endif
-
-#define time(x)		trace_mr_time (x)
 
 /* Import. */
 
@@ -43,6 +41,8 @@ static const char rcsid[] = "$Id: ns_verify.c,v 1.5.2.3 2004/06/10 17:59:42 dhan
 #include <string.h>
 #include <unistd.h>
 #include <time.h>
+
+#define time(x)		trace_mr_time (x)
 
 #include "minires/minires.h"
 #include "arpa/nameser.h"

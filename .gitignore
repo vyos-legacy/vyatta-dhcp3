@@ -14,6 +14,17 @@ tags
 TAGS
 !.gitignore
 !.mailmap
+Makefile
+client/dhclient
+config.log
+config.status
+dhcpctl/cltest
+dhcpctl/omshell
+includes/config.h
+includes/stamp-h1
+omapip/svtest
+relay/dhcrelay
+server/dhcpd
 
 # cscope files
 cscope.*

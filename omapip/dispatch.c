@@ -3,7 +3,7 @@
    I/O dispatcher. */
 
 /*
- * Copyright (c) 2004 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004,2007-2008 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1999-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -32,15 +32,78 @@
  * ``http://www.nominum.com''.
  */
 
+#include "dhcpd.h"
+
 #include <omapip/omapip_p.h>
+#include <sys/time.h>
 
 static omapi_io_object_t omapi_io_states;
-TIME cur_time;
+struct timeval cur_tv;
+
+struct eventqueue *rw_queue_empty;
 
 OMAPI_OBJECT_ALLOC (omapi_io,
 		    omapi_io_object_t, omapi_type_io_object)
 OMAPI_OBJECT_ALLOC (omapi_waiter,
 		    omapi_waiter_object_t, omapi_type_waiter)
+
+void
+register_eventhandler(struct eventqueue **queue, void (*handler)(void *))
+{
+	struct eventqueue *t, *q;
+
+	/* traverse to end of list */
+	t = NULL;
+	for (q = *queue ; q ; q = q->next) {
+		if (q->handler == handler)
+			return; /* handler already registered */
+		t = q;
+	}
+		
+	q = ((struct eventqueue *)dmalloc(sizeof(struct eventqueue), MDL));
+	if (!q)
+		log_fatal("register_eventhandler: no memory!");
+	memset(q, 0, sizeof *q);
+	if (t)
+		t->next = q;
+	else 
+		*queue	= q;
+	q->handler = handler;
+	return;
+}
+
+void
+unregister_eventhandler(struct eventqueue **queue, void (*handler)(void *))
+{
+	struct eventqueue *t, *q;
+	
+	/* traverse to end of list */
+	t= NULL;
+	for (q = *queue ; q ; q = q->next) {
+		if (q->handler == handler) {
+			if (t)
+				t->next = q->next;
+			else
+				*queue = q->next;
+			dfree(q, MDL); /* Don't access q after this!*/
+			break;
+		}
+		t = q;
+	}
+	return;
+}
+
+void
+trigger_event(struct eventqueue **queue)
+{
+	struct eventqueue *q;
+
+	for (q=*queue ; q ; q=q->next) {
+		if (q->handler) 
+			(*q->handler)(NULL);
+	}
+}
+
 
 /* Register an I/O handle so that we can do asynchronous I/O on it. */
 
@@ -99,6 +162,8 @@ isc_result_t omapi_register_io_object (omapi_object_t *h,
 	obj -> reader = reader;
 	obj -> writer = writer;
 	obj -> reaper = reaper;
+
+	omapi_io_dereference(&obj, MDL);
 	return ISC_R_SUCCESS;
 }
 
@@ -205,12 +270,12 @@ isc_result_t omapi_wait_for_completion (omapi_object_t *object,
 isc_result_t omapi_one_dispatch (omapi_object_t *wo,
 				 struct timeval *t)
 {
-	fd_set r, w, x;
+	fd_set r, w, x, rr, ww, xx;
 	int max = 0;
 	int count;
 	int desc;
 	struct timeval now, to;
-	omapi_io_object_t *io, *prev;
+	omapi_io_object_t *io, *prev, *next;
 	omapi_waiter_object_t *waiter;
 	omapi_object_t *tmp = (omapi_object_t *)0;
 
@@ -224,7 +289,8 @@ isc_result_t omapi_one_dispatch (omapi_object_t *wo,
 	/* First, see if the timeout has expired, and if so return. */
 	if (t) {
 		gettimeofday (&now, (struct timezone *)0);
-		cur_time = now.tv_sec;
+		cur_tv.tv_sec = now.tv_sec;
+		cur_tv.tv_usec = now.tv_usec;
 		if (now.tv_sec > t -> tv_sec ||
 		    (now.tv_sec == t -> tv_sec && now.tv_usec >= t -> tv_usec))
 			return ISC_R_TIMEDOUT;
@@ -280,20 +346,24 @@ isc_result_t omapi_one_dispatch (omapi_object_t *wo,
 		}
 	}
 
-	/* Wait for a packet or a timeout... XXX */
-#if 0
-#if defined (__linux__)
-#define fds_bits __fds_bits
-#endif
-	log_error ("dispatch: %d %lx %lx", max,
-		   (unsigned long)r.fds_bits [0],
-		   (unsigned long)w.fds_bits [0]);
-#endif
-	count = select (max + 1, &r, &w, &x, t ? &to : (struct timeval *)0);
+	/* poll if all reader are dry */ 
+	now.tv_sec = 0;
+	now.tv_usec = 0;
+	rr=r; 
+	ww=w; 
+	xx=x;
+
+	/* poll once */
+	count = select(max + 1, &r, &w, &x, &now);
+	if (!count) {  
+		/* We are dry now */ 
+		trigger_event(&rw_queue_empty);
+		/* Wait for a packet or a timeout... XXX */
+		count = select(max + 1, &rr, &ww, &xx, t ? &to : NULL);
+	}
 
 	/* Get the current time... */
-	gettimeofday (&now, (struct timezone *)0);
-	cur_time = now.tv_sec;
+	gettimeofday (&cur_tv, (struct timezone *)0);
 
 	/* We probably have a bad file descriptor.   Figure out which one.
 	   When we find it, call the reaper function on it, which will
@@ -314,11 +384,6 @@ isc_result_t omapi_one_dispatch (omapi_object_t *wo,
 			if (io -> readfd && io -> inner &&
 			    (desc = (*(io -> readfd)) (io -> inner)) >= 0) {
 			    FD_SET (desc, &r);
-#if 0
-			    log_error ("read check: %d %lx %lx", max,
-				       (unsigned long)r.fds_bits [0],
-				       (unsigned long)w.fds_bits [0]);
-#endif
 			    count = select (desc + 1, &r, &w, &x, &t0);
 			   bogon:
 			    if (count < 0) {
@@ -420,44 +485,71 @@ isc_result_t omapi_one_dispatch (omapi_object_t *wo,
 
 	/* Now check for I/O handles that are no longer valid,
 	   and remove them from the list. */
-	prev = (omapi_io_object_t *)0;
-	for (io = omapi_io_states.next; io; io = io -> next) {
-		if (io -> reaper) {
-			if (!io -> inner ||
-			    ((*(io -> reaper)) (io -> inner) !=
-							ISC_R_SUCCESS)) {
-				omapi_io_object_t *tmp =
-					(omapi_io_object_t *)0;
-				/* Save a reference to the next
-				   pointer, if there is one. */
-				if (io -> next)
-					omapi_io_reference (&tmp,
-							    io -> next, MDL);
-				if (prev) {
-					omapi_io_dereference (&prev -> next,
-							      MDL);
-					if (tmp)
-						omapi_io_reference
-							(&prev -> next,
-							 tmp, MDL);
-				} else {
-					omapi_io_dereference
-						(&omapi_io_states.next, MDL);
-					if (tmp)
-						omapi_io_reference
-						    (&omapi_io_states.next,
-						     tmp, MDL);
-					else
-						omapi_signal_in
-							((omapi_object_t *)
-							 &omapi_io_states,
-							 "ready");
-				}
-				if (tmp)
-					omapi_io_dereference (&tmp, MDL);
+	prev = NULL;
+	io = NULL;
+	if (omapi_io_states.next != NULL) {
+		omapi_io_reference(&io, omapi_io_states.next, MDL);
+	}
+	while (io != NULL) {
+		if ((io->inner == NULL) || 
+		    ((io->reaper != NULL) && 
+		     ((io->reaper)(io->inner) != ISC_R_SUCCESS))) 
+		{
+
+			omapi_io_object_t *tmp = NULL;
+			/* Save a reference to the next
+			   pointer, if there is one. */
+			if (io->next != NULL) {
+				omapi_io_reference(&tmp, io->next, MDL);
+				omapi_io_dereference(&io->next, MDL);
 			}
+			if (prev != NULL) {
+				omapi_io_dereference(&prev->next, MDL);
+				if (tmp != NULL)
+					omapi_io_reference(&prev->next,
+							   tmp, MDL);
+			} else {
+				omapi_io_dereference(&omapi_io_states.next, 
+						     MDL);
+				if (tmp != NULL)
+					omapi_io_reference
+					    (&omapi_io_states.next,
+					     tmp, MDL);
+				else
+					omapi_signal_in(
+							(omapi_object_t *)
+						 	&omapi_io_states,
+							"ready");
+			}
+			if (tmp != NULL)
+				omapi_io_dereference(&tmp, MDL);
+
+		} else {
+
+			if (prev != NULL) {
+				omapi_io_dereference(&prev, MDL);
+			}
+			omapi_io_reference(&prev, io, MDL);
+
 		}
-		prev = io;
+
+		/*
+		 * Equivalent to:
+		 *   io = io->next
+		 * But using our reference counting voodoo.
+		 */
+		next = NULL;
+		if (io->next != NULL) {
+			omapi_io_reference(&next, io->next, MDL);
+		}
+		omapi_io_dereference(&io, MDL);
+		if (next != NULL) {
+			omapi_io_reference(&io, next, MDL);
+			omapi_io_dereference(&next, MDL);
+		}
+	}
+	if (prev != NULL) {
+		omapi_io_dereference(&prev, MDL);
 	}
 
 	return ISC_R_SUCCESS;
@@ -493,7 +585,7 @@ isc_result_t omapi_io_get_value (omapi_object_t *h,
 
 /* omapi_io_destroy (object, MDL);
  *
- *	Find the requsted IO [object] and remove it from the list of io
+ *	Find the requested IO [object] and remove it from the list of io
  * states, causing the cleanup functions to destroy it.  Note that we must
  * hold a reference on the object while moving its ->next reference and
  * removing the reference in the chain to the target object...otherwise it

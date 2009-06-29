@@ -32,11 +32,6 @@
  * ``http://www.nominum.com''.
  */
 
-#ifndef lint
-static char copyright[] =
-"$Id: omshell.c,v 1.7.2.20 2007/05/01 20:42:56 each Exp $ Copyright (c) 2004-2005 Internet Systems Consortium.  All rights reserved.\n";
-#endif /* not lint */
-
 #include <time.h>
 #include <sys/time.h>
 #include <stdio.h>
@@ -44,6 +39,7 @@ static char copyright[] =
 #include <stdarg.h>
 #include <string.h>
 #include <isc-dhcp/result.h>
+#include <syslog.h>
 #include "dhcpctl.h"
 #include "dhcpd.h"
 
@@ -58,6 +54,12 @@ int parse_allow_deny (struct option_cache **oc, struct parse *cfile, int flag)
 }
 void dhcp (struct packet *packet) { }
 void bootp (struct packet *packet) { }
+
+#ifdef DHCPv6
+/* XXX: should we warn or something here? */
+void dhcpv6(struct packet *packet) { }
+#endif /* DHCPv6 */
+
 int check_collection (struct packet *p, struct lease *l, struct collection *c)
 {
 	return 0;
@@ -76,17 +78,15 @@ static void check (isc_result_t status, const char *func) {
 	}
 }
 
-int main (int argc, char **argv, char **envp)
-{
+int 
+main(int argc, char **argv) {
 	isc_result_t status, waitstatus;
 	dhcpctl_handle connection;
 	dhcpctl_handle authenticator;
 	dhcpctl_handle oh;
-	dhcpctl_data_string cid, ip_addr;
-	dhcpctl_data_string result, groupname, identifier;
 	struct data_string secret;
 	const char *name = 0, *algorithm = "hmac-md5";
-	int i, j;
+	int i;
 	int port = 7911;
 	const char *server = "127.0.0.1";
 	struct parse *cfile;
@@ -102,12 +102,7 @@ int main (int argc, char **argv, char **envp)
 	}
 
 	/* Initially, log errors to stderr as well as to syslogd. */
-#ifdef SYSLOG_4_2
-	openlog ("omshell", LOG_NDELAY);
-	log_priority = DHCPD_LOG_FACILITY;
-#else
 	openlog ("omshell", LOG_NDELAY, DHCPD_LOG_FACILITY);
-#endif
 	status = dhcpctl_initialize ();
 	if (status != ISC_R_SUCCESS) {
 		fprintf (stderr, "dhcpctl_initialize: %s\n",
@@ -238,7 +233,7 @@ int main (int argc, char **argv, char **envp)
 		    }
 		    break;
 
-		  case SERVER:
+		  case TOKEN_SERVER:
 		    token = next_token (&val, (unsigned *)0, cfile);
 		    if (token == NUMBER) {
 			    int alen = (sizeof buf) - 1;
@@ -481,7 +476,6 @@ int main (int argc, char **argv, char **envp)
 				val = buf;
 				do {
 				    int intval = atoi (val);
-				dotiszero:
 				    if (intval > 255) {
 					parse_warn (cfile,
 						    "dotted octet > 255: %s",

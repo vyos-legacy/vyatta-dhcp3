@@ -36,16 +36,6 @@ Description: Vyattanized common files used by all the vyatta-dhcp3* packages
  This package contains the files used by all the packages from the
  Vyattanized ISC DHCP version 3.
 
-Package: vyatta-dhcp3-dev
-Priority: optional
-Architecture: any
-Section: devel
-Depends: libc6-dev
-Conflicts: dhcp3-dev
-Description: Vyattanized API for accessing and modifying the DHCP server
- and client state OMAPI is an API for accessing and modifying the DHCP 
- server and client state.
-
 Package: vyatta-dhcp3-client
 Architecture: any
 Depends: debianutils (>= 2.8.2),
@@ -68,16 +58,6 @@ Description: Vyattanized DHCP client
  another DHCP client installed.
  .
  Extra documentation can be found in the package dhcp3-common.
-
-Package: vyatta-dhcp3-client-udeb
-Priority: extra
-Architecture: any
-Section: debian-installer
-Depends: ${shlibs:Depends}
-Conflicts: dhcp3-client-udeb
-XC-Package-Type: udeb
-Description: Vyattanized DHCP Client for debian-installer
- dhcp-client-udeb is a minimal dhcp package used by the debian-installer.
 
 Package: vyatta-dhcp3-relay
 Priority: optional

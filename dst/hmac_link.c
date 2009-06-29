@@ -1,9 +1,10 @@
 #ifdef HMAC_MD5
 #ifndef LINT
-static const char rcsid[] = "$Header: /proj/cvs/prod/DHCP/dst/hmac_link.c,v 1.1 2001/02/22 07:22:08 mellon Exp $";
+static const char rcsid[] = "$Header: /proj/cvs/prod/DHCP/dst/hmac_link.c,v 1.3 2007/12/06 00:50:22 dhankins Exp $";
 #endif
 /*
  * Portions Copyright (c) 1995-1998 by Trusted Information Systems, Inc.
+ * Portions Copyright (c) 2007 by Internet Systems Consortium, Inc. ("ISC")
  *
  * Permission to use, copy modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -362,7 +363,7 @@ dst_hmac_md5_key_from_file_format(DST_KEY *dkey, const char *buff,
 /*
  * dst_hmac_md5_to_dns_key() 
  *         function to extract hmac key from DST_KEY structure 
- * intput: 
+ * input: 
  *      in_key:  HMAC-MD5 key 
  * output: 
  *	out_str: buffer to write ot
