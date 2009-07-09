@@ -1,3 +1,9 @@
+vyatta-dhcp3 (3.0.6.dfsg-24+jenner3) unstable; urgency=low
+
+  * Use static routes rather than kernel routes for DHCP
+
+ -- Stephen Hemminger <stephen.hemminger@vyatta.com>  Thu, 09 Jul 2009 04:46:04 -0700
+
 vyatta-dhcp3 (3.0.6.dfsg-24+jenner2) unstable; urgency=low
 
   * test
