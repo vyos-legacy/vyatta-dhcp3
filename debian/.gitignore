@@ -1,0 +1,6 @@
+tmp
+files
+patched
+*.debhelper
+*.log
+vyatta-dhcp3-*

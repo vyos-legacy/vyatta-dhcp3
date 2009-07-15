@@ -32,12 +32,9 @@
  * ``http://www.nominum.com''.
  */
 
-#ifndef lint
-static char copyright[] =
-"$Id: print.c,v 1.53.2.16 2007/05/01 20:42:56 each Exp $ Copyright (c) 2004-2006 Internet Systems Consortium.  All rights reserved.\n";
-#endif /* not lint */
-
 #include "dhcpd.h"
+
+int db_time_format = DEFAULT_TIME_FORMAT;
 
 char *quotify_string (const char *s, const char *file, int line)
 {
@@ -48,7 +45,7 @@ char *quotify_string (const char *s, const char *file, int line)
 	for (sp = s; sp && *sp; sp++) {
 		if (*sp == ' ')
 			len++;
-		else if (!isascii (*sp) || !isprint (*sp))
+		else if (!isascii ((int)*sp) || !isprint ((int)*sp))
 			len += 4;
 		else if (*sp == '"' || *sp == '\\')
 			len += 2;
@@ -62,7 +59,7 @@ char *quotify_string (const char *s, const char *file, int line)
 		for (sp = s; sp && *sp; sp++) {
 			if (*sp == ' ')
 				*nsp++ = ' ';
-			else if (!isascii (*sp) || !isprint (*sp)) {
+			else if (!isascii ((int)*sp) || !isprint ((int)*sp)) {
 				sprintf (nsp, "\\%03o",
 					 *(const unsigned char *)sp);
 				nsp += 4;
@@ -459,7 +456,7 @@ static unsigned print_subexpression (expr, buf, len)
 {
 	unsigned rv, left;
 	const char *s;
-	
+
 	switch (expr -> op) {
 	      case expr_none:
 		if (len > 3) {
@@ -514,6 +511,21 @@ static unsigned print_subexpression (expr, buf, len)
 		}
 		break;
 
+	      case expr_regex_match:
+		if (len > 10) {
+			rv = 4;
+			strcpy(buf, "(regex ");
+			rv += print_subexpression(expr->data.equal[0],
+						  buf + rv, len - rv - 2);
+			buf[rv++] = ' ';
+			rv += print_subexpression(expr->data.equal[1],
+						  buf + rv, len - rv - 1);
+			buf[rv++] = ')';
+			buf[rv] = 0;
+			return rv;
+		}
+		break;
+
 	      case expr_substring:
 		if (len > 11) {
 			rv = 8;
@@ -546,6 +558,30 @@ static unsigned print_subexpression (expr, buf, len)
 			if (len > rv)
 				buf [rv++] = ')';
 			buf [rv] = 0;
+			return rv;
+		}
+		break;
+
+	      case expr_lcase:
+		if (len > 9) {
+			rv = 7;
+			strcpy(buf, "(lcase ");
+			rv += print_subexpression(expr->data.lcase,
+						  buf + rv, len - rv - 1);
+			buf[rv++] = ')';
+			buf[rv] = 0;
+			return rv;
+		}
+		break;
+
+	      case expr_ucase:
+		if (len > 9) {
+			rv = 7;
+			strcpy(buf, "(ucase ");
+			rv += print_subexpression(expr->data.ucase,
+						  buf + rv, len - rv - 1);
+			buf[rv++] = ')';
+			buf[rv] = 0;
 			return rv;
 		}
 		break;
@@ -1007,6 +1043,7 @@ static unsigned print_subexpression (expr, buf, len)
 			return rv;
 		}
 		break;
+
 	      case expr_function:
 		rv = 9;
 		if (len > rv + 1) {
@@ -1020,10 +1057,15 @@ static unsigned print_subexpression (expr, buf, len)
 					rv += strlen (foo -> string);
 				}
 			}
-			buf [rv] = ')';
-			buf [rv++] = 0;
+			buf [rv++] = ')';
+			buf [rv] = 0;
 			return rv;
 		}
+
+	      default:
+		log_fatal("Impossible case at %s:%d (undefined expression "
+			  "%d).", MDL, expr->op);
+		break;
 	}
 	return 0;
 }
@@ -1043,7 +1085,6 @@ int token_print_indent_concat (FILE *file, int col,  int indent,
 			       const char *suffix, ...)
 {
 	va_list list;
-	char *buf;
 	unsigned len;
 	char *s, *t, *u;
 
@@ -1092,7 +1133,7 @@ int token_indent_data_string (FILE *file, int col, int indent,
 
 	/* If we have a purely ASCII string, output it as text. */
 	if (i == data -> len) {
-		char *buf = dmalloc (data -> len + 3, MDL);
+		buf = dmalloc (data -> len + 3, MDL);
 		if (buf) {
 			buf [0] = '"';
 			memcpy (buf + 1, data -> data, data -> len);
@@ -1262,6 +1303,9 @@ void print_dns_status (int status, ns_updque *uq)
 		      case T_A:
 			en = "A";
 			break;
+		      case T_AAAA:
+			en = "AAAA";
+			break;
 		      case T_PTR:
 			en = "PTR";
 			break;
@@ -1403,3 +1447,48 @@ void print_dns_status (int status, ns_updque *uq)
 		log_info ("%s", obuf);
 }
 #endif /* NSUPDATE */
+
+/* Format the given time as "A; # B", where A is the format
+ * used by the parser, and B is the local time, for humans.
+ */
+const char *
+print_time(TIME t)
+{
+	static char buf[sizeof("epoch 9223372036854775807; "
+			       "# Wed Jun 30 21:49:08 2147483647")];
+	/* The string: 	       "6 2147483647/12/31 23:59:60;"
+	 * is smaller than the other, used to declare the buffer size, so
+	 * we can use one buffer for both.
+	 */
+
+	if (t == MAX_TIME)
+		return "never;";
+
+	if (t < 0)
+		return NULL;
+
+	/* For those lucky enough to have a 128-bit time_t, ensure that
+	 * whatever (corrupt) value we're given doesn't exceed the static
+	 * buffer.
+	 */
+#if (MAX_TIME > 0x7fffffffffffffff)
+	if (t > 0x7fffffffffffffff)
+		return NULL;
+#endif
+
+	if (db_time_format == LOCAL_TIME_FORMAT) {
+		if (strftime(buf, sizeof(buf),
+			     "epoch %s; # %a %b %d %H:%M:%S %Y",
+			     localtime(&t)) == 0)
+			return NULL;
+	} else {
+		/* No bounds check for the year is necessary - in this case,
+		 * strftime() will run out of space and assert an error.
+		 */
+		if (strftime(buf, sizeof(buf), "%w %Y/%m/%d %H:%M:%S;",
+			     gmtime(&t)) == 0)
+			return NULL;
+	}
+
+	return buf;
+}

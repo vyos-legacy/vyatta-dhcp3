@@ -3,7 +3,7 @@
    Subroutines that support dhcp tracing... */
 
 /*
- * Copyright (c) 2004 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004,2007 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 2001-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -30,11 +30,6 @@
  * learn more about Nominum, Inc., see ``http://www.nominum.com''.
  */
 
-#ifndef lint
-static char copyright[] =
-"$Id: ctrace.c,v 1.3.2.3 2004/09/30 20:23:06 dhankins Exp $ Copyright (c) 2004 Internet Systems Consortium.  All rights reserved.\n";
-#endif /* not lint */
-
 #include "dhcpd.h"
 
 #if defined (TRACING)
@@ -46,8 +41,9 @@ void trace_interface_register (trace_type_t *ttype, struct interface_info *ip)
 		memset (&tipkt, 0, sizeof tipkt);
 		memcpy (&tipkt.hw_address,
 			&ip -> hw_address, sizeof ip -> hw_address);
-		memcpy (&tipkt.primary_address,
-			&ip -> primary_address, sizeof ip -> primary_address);
+		if (ip->address_count)
+			memcpy(&tipkt.primary_address,
+			       ip->addresses, sizeof(*ip->addresses));
 		memcpy (tipkt.name, ip -> name, sizeof ip -> name);
 		tipkt.index = htonl (ip -> index);
 
@@ -87,8 +83,12 @@ void trace_interface_input (trace_type_t *ttype, unsigned len, char *buf)
 
 	memcpy (&ip -> hw_address, &tipkt -> hw_address,
 		sizeof ip -> hw_address);
-	memcpy (&ip -> primary_address, &tipkt -> primary_address,
-		sizeof ip -> primary_address);
+	/* XXX: Without the full addresses state it's not quite a full
+	 * trace.
+	 */
+	ip->address_count = ip->address_max = 1;
+	ip->addresses = dmalloc(sizeof(*ip->addresses), MDL);
+	memcpy(ip->addresses, &tipkt->primary_address, sizeof(*ip->addresses));
 	memcpy (ip -> name, tipkt -> name, sizeof ip -> name);
 	ip -> index = ntohl (tipkt -> index);
 
@@ -102,7 +102,7 @@ void trace_interface_input (trace_type_t *ttype, unsigned len, char *buf)
 	ip -> ifp -> ifr_addr.sa_len = sizeof (struct sockaddr_in);
 #endif
 	sin = (struct sockaddr_in *)&ip -> ifp -> ifr_addr;
-	sin -> sin_addr = ip -> primary_address;
+	sin->sin_addr = ip->addresses[0];
 
 	addr.len = 4;
 	memcpy (addr.iabuf, &sin -> sin_addr.s_addr, addr.len);

@@ -41,10 +41,7 @@ static char rcsid[] = "$NetBSD: inet_addr.c,v 1.6 1996/02/02 15:22:23 mrg Exp $"
 #endif
 #endif /* LIBC_SCCS and not lint */
 
-#ifndef lint
-static char copyright[] =
-"$Id: inet_addr.c,v 1.1 2000/09/20 00:01:50 mellon Exp $ Copyright (c) 1983, 1990, 1993 The Regents of the University of California.  All rights reserved.\n";
-#endif /* not lint */
+#include "dhcpd.h"
 
 #include "omapip/omapip_p.h"
 
@@ -81,14 +78,14 @@ inet_aton(cp, addr)
 				base = 8;
 		}
 		while ((c = *cp) != '\0') {
-			if (isascii(c) && isdigit(c)) {
+			if (isascii(c) && isdigit((int)c)) {
 				val = (val * base) + (c - '0');
 				cp++;
 				continue;
 			}
-			if (base == 16 && isascii(c) && isxdigit(c)) {
+			if (base == 16 && isascii(c) && isxdigit((int)c)) {
 				val = (val << 4) + 
-					(c + 10 - (islower(c) ? 'a' : 'A'));
+				      (c + 10 - (islower((int)c) ? 'a' : 'A'));
 				cp++;
 				continue;
 			}
@@ -110,7 +107,7 @@ inet_aton(cp, addr)
 	/*
 	 * Check for trailing characters.
 	 */
-	if (*cp && (!isascii(*cp) || !isspace(*cp)))
+	if (*cp && (!isascii(*cp) || !isspace((int)*cp)))
 		return (0);
 	/*
 	 * Concoct the address according to

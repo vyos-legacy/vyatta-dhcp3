@@ -3,7 +3,7 @@
    DHCP Server Daemon. */
 
 /*
- * Copyright (c) 2004-2006 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2009 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1996-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -32,22 +32,32 @@
  * ``http://www.nominum.com''.
  */
 
-#ifndef lint
-static char ocopyright[] =
-"$Id: dhcpd.c,v 1.115.2.19 2007/05/01 20:42:56 each Exp $ Copyright 2004-2006 Internet Systems Consortium.";
-#endif
-
-  static char copyright[] =
-"Copyright 2004-2007 Internet Systems Consortium.";
+static char copyright[] =
+"Copyright 2004-2009 Internet Systems Consortium.";
 static char arr [] = "All rights reserved.";
 static char message [] = "Internet Systems Consortium DHCP Server";
 static char url [] = "For info, please visit http://www.isc.org/sw/dhcp/";
 
 #include "dhcpd.h"
-#include "version.h"
 #include <omapip/omapip_p.h>
+#include <syslog.h>
+#include <errno.h>
+#include <limits.h>
+#include <sys/types.h>
+#include <sys/time.h>
+#include <signal.h>
 
-static void usage PROTO ((void));
+#if defined (PARANOIA)
+#  include <sys/types.h>
+#  include <unistd.h>
+#  include <pwd.h>
+/* get around the ISC declaration of group */
+#  define group real_group 
+#    include <grp.h>
+#  undef group
+#endif /* PARANOIA */
+
+static void usage(void);
 
 struct iaddr server_identifier;
 int server_identifier_matched;
@@ -174,6 +184,7 @@ static void omapi_listener_start (void *foo)
 {
 	omapi_object_t *listener;
 	isc_result_t result;
+	struct timeval tv;
 
 	listener = (omapi_object_t *)0;
 	result = omapi_generic_new (&listener, MDL);
@@ -188,22 +199,39 @@ static void omapi_listener_start (void *foo)
 	if (result != ISC_R_SUCCESS) {
 		log_error ("Can't start OMAPI protocol: %s",
 			   isc_result_totext (result));
-		add_timeout (cur_time + 5, omapi_listener_start, 0, 0, 0);
+		tv.tv_sec = cur_time + 5;
+		tv.tv_usec = 0;
+		add_timeout (&tv, omapi_listener_start, 0, 0, 0);
 	}
 	omapi_object_dereference (&listener, MDL);
 }
 
-int main (argc, argv, envp)
-	int argc;
-	char **argv, **envp;
-{
+#if defined (PARANOIA)
+/* to be used in one of two possible scenarios */
+static void setup_chroot (char *chroot_dir) {
+  if (geteuid())
+    log_fatal ("you must be root to use chroot");
+
+  if (chroot(chroot_dir)) {
+    log_fatal ("chroot(\"%s\"): %m", chroot_dir);
+  }
+  if (chdir ("/")) {
+    /* probably permission denied */
+    log_fatal ("chdir(\"/\"): %m");
+  }
+}
+#endif /* PARANOIA */
+
+#ifndef UNIT_TEST
+int 
+main(int argc, char **argv) {
+	int fd;
 	int i, status;
 	struct servent *ent;
 	char *s;
 	int cftest = 0;
 	int lftest = 0;
 #ifndef DEBUG
-	int pidfilewritten = 0;
 	int pid;
 	char pbuf [20];
 	int daemon = 1;
@@ -215,26 +243,38 @@ int main (argc, argv, envp)
 	struct interface_info *ip;
 	struct parse *parse;
 	int lose;
-	omapi_object_t *auth;
-	struct tsig_key *key;
-	omapi_typed_data_t *td;
 	int no_dhcpd_conf = 0;
 	int no_dhcpd_db = 0;
 	int no_dhcpd_pid = 0;
+#ifdef DHCPv6
+	int local_family_set = 0;
+#endif /* DHCPv6 */
 #if defined (TRACING)
 	char *traceinfile = (char *)0;
 	char *traceoutfile = (char *)0;
 #endif
 
-	/* Make sure we have stdin, stdout and stderr. */
-	status = open ("/dev/null", O_RDWR);
-	if (status == 0)
-		status = open ("/dev/null", O_RDWR);
-	if (status == 1) {
-		status = open ("/dev/null", O_RDWR);
-		log_perror = 0; /* No sense logging to /dev/null. */
-	} else if (status != -1)
-		close (status);
+#if defined (PARANOIA)
+	char *set_user   = 0;
+	char *set_group  = 0;
+	char *set_chroot = 0;
+
+	uid_t set_uid = 0;
+	gid_t set_gid = 0;
+#endif /* PARANOIA */
+
+        /* Make sure that file descriptors 0 (stdin), 1, (stdout), and
+           2 (stderr) are open. To do this, we assume that when we
+           open a file the lowest available file descriptor is used. */
+        fd = open("/dev/null", O_RDWR);
+        if (fd == 0)
+                fd = open("/dev/null", O_RDWR);
+        if (fd == 1)
+                fd = open("/dev/null", O_RDWR);
+        if (fd == 2)
+                log_perror = 0; /* No sense logging to /dev/null. */
+        else if (fd != -1)
+                close(fd);
 
 	/* Set up the client classification system. */
 	classification_setup ();
@@ -252,19 +292,14 @@ int main (argc, argv, envp)
 	dhcp_common_objects_setup ();
 
 	/* Initially, log errors to stderr as well as to syslogd. */
-#ifdef SYSLOG_4_2
-	openlog ("dhcpd", LOG_NDELAY);
-	log_priority = DHCPD_LOG_FACILITY;
-#else
 	openlog ("dhcpd", LOG_NDELAY, DHCPD_LOG_FACILITY);
-#endif
 
 	for (i = 1; i < argc; i++) {
 		if (!strcmp (argv [i], "-p")) {
 			if (++i == argc)
 				usage ();
 			for (s = argv [i]; *s; s++)
-				if (!isdigit (*s))
+				if (!isdigit ((unsigned char)*s))
 					log_fatal ("%s: not a valid UDP port",
 					       argv [i]);
 			status = atoi (argv [i]);
@@ -287,6 +322,20 @@ int main (argc, argv, envp)
 			if (++i == argc)
 				usage ();
 			server = argv [i];
+#if defined (PARANOIA)
+		} else if (!strcmp (argv [i], "-user")) {
+			if (++i == argc)
+				usage ();
+			set_user = argv [i];
+		} else if (!strcmp (argv [i], "-group")) {
+			if (++i == argc)
+				usage ();
+			set_group = argv [i];
+		} else if (!strcmp (argv [i], "-chroot")) {
+			if (++i == argc)
+				usage ();
+			set_chroot = argv [i];
+#endif /* PARANOIA */
 		} else if (!strcmp (argv [i], "-cf")) {
 			if (++i == argc)
 				usage ();
@@ -320,8 +369,24 @@ int main (argc, argv, envp)
 		} else if (!strcmp (argv [i], "-q")) {
 			quiet = 1;
 			quiet_interface_discovery = 1;
+#ifdef DHCPv6
+		} else if (!strcmp(argv[i], "-4")) {
+			if (local_family_set && (local_family != AF_INET)) {
+				log_fatal("Server cannot run in both IPv4 and "
+					  "IPv6 mode at the same time.");
+			}
+			local_family = AF_INET;
+			local_family_set = 1;
+		} else if (!strcmp(argv[i], "-6")) {
+			if (local_family_set && (local_family != AF_INET6)) {
+				log_fatal("Server cannot run in both IPv4 and "
+					  "IPv6 mode at the same time.");
+			}
+			local_family = AF_INET6;
+			local_family_set = 1;
+#endif /* DHCPv6 */
 		} else if (!strcmp (argv [i], "--version")) {
-			log_info ("isc-dhcpd-%s", DHCP_VERSION);
+			log_info("isc-dhcpd-%s", PACKAGE_VERSION);
 			exit (0);
 #if defined (TRACING)
 		} else if (!strcmp (argv [i], "-tf")) {
@@ -358,15 +423,49 @@ int main (argc, argv, envp)
 	if (!no_dhcpd_conf && (s = getenv ("PATH_DHCPD_CONF"))) {
 		path_dhcpd_conf = s;
 	}
-	if (!no_dhcpd_db && (s = getenv ("PATH_DHCPD_DB"))) {
-		path_dhcpd_db = s;
-	}
-	if (!no_dhcpd_pid && (s = getenv ("PATH_DHCPD_PID"))) {
-		path_dhcpd_pid = s;
-	}
+
+#ifdef DHCPv6
+        if (local_family == AF_INET6) {
+                /* DHCPv6: override DHCPv4 lease and pid filenames */
+	        if (!no_dhcpd_db) {
+                        if ((s = getenv ("PATH_DHCPD6_DB")))
+		                path_dhcpd_db = s;
+                        else
+		                path_dhcpd_db = _PATH_DHCPD6_DB;
+	        }
+	        if (!no_dhcpd_pid) {
+                        if ((s = getenv ("PATH_DHCPD6_PID")))
+		                path_dhcpd_pid = s;
+                        else
+		                path_dhcpd_pid = _PATH_DHCPD6_PID;
+	        }
+        } else
+#else /* !DHCPv6 */
+        {
+	        if (!no_dhcpd_db && (s = getenv ("PATH_DHCPD_DB"))) {
+		        path_dhcpd_db = s;
+	        }
+	        if (!no_dhcpd_pid && (s = getenv ("PATH_DHCPD_PID"))) {
+		        path_dhcpd_pid = s;
+	        }
+        }
+#endif /* DHCPv6 */
+
+        /*
+         * convert relative path names to absolute, for files that need
+         * to be reopened after chdir() has been called
+         */
+        if (path_dhcpd_db[0] != '/') {
+                char *path = dmalloc(PATH_MAX, MDL);
+                if (path == NULL)
+                        log_fatal("No memory for filename\n");
+                path_dhcpd_db = realpath(path_dhcpd_db,  path);
+                if (path_dhcpd_db == NULL)
+                        log_fatal("%s: %s", path, strerror(errno));
+        }
 
 	if (!quiet) {
-		log_info ("%s %s", message, DHCP_VERSION);
+		log_info("%s %s", message, PACKAGE_VERSION);
 		log_info (copyright);
 		log_info (arr);
 		log_info (url);
@@ -390,6 +489,44 @@ int main (argc, argv, envp)
 					     trace_seed_stop, MDL);
 #endif
 
+#if defined (PARANOIA)
+	/* get user and group info if those options were given */
+	if (set_user) {
+		struct passwd *tmp_pwd;
+
+		if (geteuid())
+			log_fatal ("you must be root to set user");
+
+		if (!(tmp_pwd = getpwnam(set_user)))
+			log_fatal ("no such user: %s", set_user);
+
+		set_uid = tmp_pwd->pw_uid;
+
+		/* use the user's group as the default gid */
+		if (!set_group)
+			set_gid = tmp_pwd->pw_gid;
+	}
+
+	if (set_group) {
+/* get around the ISC declaration of group */
+#define group real_group
+		struct group *tmp_grp;
+
+		if (geteuid())
+			log_fatal ("you must be root to set group");
+
+		if (!(tmp_grp = getgrnam(set_group)))
+			log_fatal ("no such group: %s", set_group);
+
+		set_gid = tmp_grp->gr_gid;
+#undef group
+	}
+
+#  if defined (EARLY_CHROOT)
+	if (set_chroot) setup_chroot (set_chroot);
+#  endif /* EARLY_CHROOT */
+#endif /* PARANOIA */
+
 	/* Default to the DHCP/BOOTP port. */
 	if (!local_port)
 	{
@@ -398,20 +535,45 @@ int main (argc, argv, envp)
 			log_debug ("binding to environment-specified port %d",
 				   ntohs (local_port));
 		} else {
-			ent = getservbyname ("dhcp", "udp");
-			if (!ent)
-				local_port = htons (67);
-			else
-				local_port = ent -> s_port;
+			if (local_family == AF_INET) {
+				ent = getservbyname("dhcp", "udp");
+				if (ent == NULL) {
+					local_port = htons(67);
+				} else {
+					local_port = ent->s_port;
+				}
+			} else {
+				/* INSIST(local_family == AF_INET6); */
+				ent = getservbyname("dhcpv6-server", "udp");
+				if (ent == NULL) {
+					local_port = htons(547);
+				} else {
+					local_port = ent->s_port;
+				}
+			}
 #ifndef __CYGWIN32__ /* XXX */
 			endservent ();
 #endif
 		}
 	}
   
-	remote_port = htons (ntohs (local_port) + 1);
+  	if (local_family == AF_INET) {
+		remote_port = htons(ntohs(local_port) + 1);
+	} else {
+		/* INSIST(local_family == AF_INET6); */
+		ent = getservbyname("dhcpv6-client", "udp");
+		if (ent == NULL) {
+			remote_port = htons(546);
+		} else {
+			remote_port = ent->s_port;
+		}
+	}
 
 	if (server) {
+		if (local_family != AF_INET) {
+			log_fatal("You can only specify address to send "
+			          "replies to when running an IPv4 server.");
+		}
 		if (!inet_aton (server, &limited_broadcast)) {
 			struct hostent *he;
 			he = gethostbyname (server);
@@ -427,7 +589,7 @@ int main (argc, argv, envp)
 	}
 
 	/* Get the current time... */
-	GET_TIME (&cur_time);
+	gettimeofday(&cur_tv, NULL);
 
 	/* Set up the initial dhcp option universe. */
 	initialize_common_option_spaces ();
@@ -444,23 +606,27 @@ int main (argc, argv, envp)
 	/* Set up various hooks. */
 	dhcp_interface_setup_hook = dhcpd_interface_setup_hook;
 	bootp_packet_handler = do_packet;
+#ifdef DHCPv6
+	dhcpv6_packet_handler = do_packet6;
+#endif /* DHCPv6 */
 
 #if defined (NSUPDATE)
 	/* Set up the standard name service updater routine. */
-	parse = (struct parse *)0;
-	status = new_parse (&parse, -1,
-			    std_nsupdate, (sizeof std_nsupdate) - 1,
+	parse = NULL;
+	status = new_parse(&parse, -1, std_nsupdate, sizeof(std_nsupdate) - 1,
 			    "standard name service update routine", 0);
 	if (status != ISC_R_SUCCESS)
 		log_fatal ("can't begin parsing name service updater!");
 
-	lose = 0;
-	if (!(parse_executable_statements
-	      (&root_group -> statements, parse, &lose, context_any))) {
-		end_parse (&parse);
-		log_fatal ("can't parse standard name service updater!");
+	if (parse != NULL) {
+		lose = 0;
+		if (!(parse_executable_statements(&root_group->statements,
+						  parse, &lose, context_any))) {
+			end_parse(&parse);
+			log_fatal("can't parse standard name service updater!");
+		}
+		end_parse(&parse);
 	}
-	end_parse (&parse);
 #endif
 
 	/* Initialize icmp support... */
@@ -487,11 +653,28 @@ int main (argc, argv, envp)
 	}
 #endif
 
+#ifdef DHCPv6
+	/* set up DHCPv6 hashes */
+	if (!ia_new_hash(&ia_na_active, DEFAULT_HASH_SIZE, MDL)) {
+		log_fatal("Out of memory creating hash for active IA_NA.");
+	}
+	if (!ia_new_hash(&ia_ta_active, DEFAULT_HASH_SIZE, MDL)) {
+		log_fatal("Out of memory creating hash for active IA_TA.");
+	}
+	if (!ia_new_hash(&ia_pd_active, DEFAULT_HASH_SIZE, MDL)) {
+		log_fatal("Out of memory creating hash for active IA_PD.");
+	}
+#endif /* DHCPv6 */
+
 	/* Read the dhcpd.conf file... */
 	if (readconf () != ISC_R_SUCCESS)
 		log_fatal ("Configuration file errors encountered -- exiting");
 
 	postconf_initialization (quiet);
+ 
+#if defined (PARANOIA) && !defined (EARLY_CHROOT)
+	if (set_chroot) setup_chroot (set_chroot);
+#endif /* PARANOIA && !EARLY_CHROOT */
 
         /* test option should cause an early exit */
  	if (cftest && !lftest) 
@@ -506,7 +689,25 @@ int main (argc, argv, envp)
 		exit (0);
 
 	/* Discover all the network interfaces and initialize them. */
-	discover_interfaces (DISCOVER_SERVER);
+	discover_interfaces(DISCOVER_SERVER);
+
+#ifdef DHCPv6
+	/*
+	 * Remove addresses from our pools that we should not issue
+	 * to clients.
+	 *
+	 * We currently have no support for this in IPv4. It is not 
+	 * as important in IPv4, as making pools with ranges that 
+	 * leave out interfaces and hosts is fairly straightforward
+	 * using range notation, but not so handy with CIDR notation.
+	 */
+	if (local_family == AF_INET6) {
+		mark_hosts_unavailable();
+		mark_phosts_unavailable();
+		mark_interfaces_unavailable();
+	}
+#endif /* DHCPv6 */
+
 
 	/* Make up a seed for the random number generator from current
 	   time plus the sum of the last four bytes of each
@@ -527,6 +728,23 @@ int main (argc, argv, envp)
 #endif
 	postdb_startup ();
 
+#ifdef DHCPv6
+	/*
+	 * Set server DHCPv6 identifier.
+	 * See dhcpv6.c for discussion of setting DUID.
+	 */
+	if (set_server_duid_from_option() == ISC_R_SUCCESS) {
+		write_server_duid();
+	} else {
+		if (!server_duid_isset()) {
+			if (generate_new_server_duid() != ISC_R_SUCCESS) {
+				log_fatal("Unable to set server identifier.");
+			}
+			write_server_duid();
+		}
+	}
+#endif /* DHCPv6 */
+
 #ifndef DEBUG
 	if (daemon) {
 		/* First part of becoming a daemon... */
@@ -535,30 +753,50 @@ int main (argc, argv, envp)
 		else if (pid)
 			exit (0);
 	}
+ 
+#if defined (PARANOIA)
+	/* change uid to the specified one */
+
+	if (set_gid) {
+		if (setgroups (0, (void *)0))
+			log_fatal ("setgroups: %m");
+		if (setgid (set_gid))
+			log_fatal ("setgid(%d): %m", (int) set_gid);
+	}	
+
+	if (set_uid) {
+		if (setuid (set_uid))
+			log_fatal ("setuid(%d): %m", (int) set_uid);
+	}
+#endif /* PARANOIA */
 
 	/* Read previous pid file. */
 	if ((i = open (path_dhcpd_pid, O_RDONLY)) >= 0) {
-		status = read (i, pbuf, (sizeof pbuf) - 1);
+		status = read(i, pbuf, (sizeof pbuf) - 1);
 		close (i);
 		if (status > 0) {
-			pbuf [status] = 0;
-			pid = atoi (pbuf);
+			pbuf[status] = 0;
+			pid = atoi(pbuf);
 
-			/* If the previous server process is not still running,
-			   write a new pid file immediately. */
-			if (pid && (pid == getpid() || kill (pid, 0) < 0)) {
-				unlink (path_dhcpd_pid);
-				if ((i = open (path_dhcpd_pid,
-					O_WRONLY | O_CREAT, 0644)) >= 0) {
-				    sprintf (pbuf, "%d\n", (int)getpid ());
-				    write (i, pbuf, strlen (pbuf));
-				    close (i);
-				    pidfilewritten = 1;
-				}
-			} else
-				log_fatal ("There's already a DHCP server running.");
+			/*
+                         * If there was a previous server process and it's
+                         * is still running, abort
+                         */
+			if (!pid || (pid != getpid() && kill(pid, 0) == 0))
+				log_fatal("There's already a "
+                                          "DHCP server running.");
 		}
 	}
+
+        /* Write new pid file. */
+        if ((i = open(path_dhcpd_pid, O_WRONLY|O_CREAT|O_TRUNC, 0644)) >= 0) {
+                sprintf(pbuf, "%d\n", (int) getpid());
+                write(i, pbuf, strlen(pbuf));
+                close(i);
+        } else {
+                log_error("Can't create PID file %s: %m.", path_dhcpd_pid);
+        }
+
 
 	/* If we were requested to log to stdout on the command line,
 	   keep doing so; otherwise, stop. */
@@ -569,26 +807,20 @@ int main (argc, argv, envp)
 
 	if (daemon) {
 		/* Become session leader and get pid... */
-		chdir("/");
-		close (0);
-		close (1);
-		close (2);
-		pid = setsid ();
-	}
+		pid = setsid();
 
-	/* If we didn't write the pid file earlier because we found a
-	   process running the logged pid, but we made it to here,
-	   meaning nothing is listening on the bootp port, then write
-	   the pid file out - what's in it now is bogus anyway. */
-	if (!pidfilewritten) {
-		unlink (path_dhcpd_pid);
-		if ((i = open (path_dhcpd_pid,
-			       O_WRONLY | O_CREAT, 0644)) >= 0) {
-			sprintf (pbuf, "%d\n", (int)getpid ());
-			write (i, pbuf, strlen (pbuf));
-			close (i);
-			pidfilewritten = 1;
-		}
+                /* Close standard I/O descriptors. */
+                close(0);
+                close(1);
+                close(2);
+
+                /* Reopen them on /dev/null. */
+                open("/dev/null", O_RDWR);
+                open("/dev/null", O_RDWR);
+                open("/dev/null", O_RDWR);
+                log_perror = 0; /* No sense logging to /dev/null. */
+
+                chdir("/");
 	}
 #endif /* !DEBUG */
 
@@ -599,19 +831,18 @@ int main (argc, argv, envp)
 	dmalloc_outstanding = 0;
 #endif
 
-#if defined (DEBUG_RC_HISTORY_EXHAUSTIVELY)
-	dump_rc_history ();
-#endif
-
 	omapi_set_int_value ((omapi_object_t *)dhcp_control_object,
 			     (omapi_object_t *)0, "state", server_running);
 
+	register_eventhandler(&rw_queue_empty,commit_leases_readerdry);
+	
 	/* Receive packets and dispatch them... */
 	dispatch ();
 
 	/* Not reached */
 	return 0;
 }
+#endif /* !UNIT_TEST */
 
 void postconf_initialization (int quiet)
 {
@@ -649,7 +880,7 @@ void postconf_initialization (int quiet)
 		data_string_forget (&db, MDL);
 		path_dhcpd_db = s;
 	}
-	
+
 	oc = lookup_option (&server_universe, options, SV_PID_FILE_NAME);
 	if (oc &&
 	    evaluate_option_cache (&db, (struct packet *)0,
@@ -664,6 +895,44 @@ void postconf_initialization (int quiet)
 		data_string_forget (&db, MDL);
 		path_dhcpd_pid = s;
 	}
+
+#ifdef DHCPv6
+        if (local_family == AF_INET6) {
+                /*
+                 * Override lease file name with dhcpv6 lease file name,
+                 * if it was set; then, do the same with the pid file name
+                 */
+                oc = lookup_option(&server_universe, options,
+                                   SV_DHCPV6_LEASE_FILE_NAME);
+                if (oc &&
+                    evaluate_option_cache(&db, NULL, NULL, NULL,
+				          options, NULL, &global_scope,
+                                          oc, MDL)) {
+                        s = dmalloc (db.len + 1, MDL);
+                        if (!s)
+                                log_fatal ("no memory for lease db filename.");
+                        memcpy (s, db.data, db.len);
+                        s [db.len] = 0;
+                        data_string_forget (&db, MDL);
+                        path_dhcpd_db = s;
+                }
+
+                oc = lookup_option(&server_universe, options,
+                                   SV_DHCPV6_PID_FILE_NAME);
+                if (oc &&
+                    evaluate_option_cache(&db, NULL, NULL, NULL,
+				          options, NULL, &global_scope,
+                                          oc, MDL)) {
+                        s = dmalloc (db.len + 1, MDL);
+                        if (!s)
+                                log_fatal ("no memory for lease db filename.");
+                        memcpy (s, db.data, db.len);
+                        s [db.len] = 0;
+                        data_string_forget (&db, MDL);
+                        path_dhcpd_pid = s;
+                }
+        }
+#endif /* DHCPv6 */
 
 	omapi_port = -1;
 	oc = lookup_option (&server_universe, options, SV_OMAPI_PORT);
@@ -754,13 +1023,6 @@ void postconf_initialization (int quiet)
 		data_string_forget (&db, MDL);
 	}
 
-	/*
-		On Debian we default to 'ddns-update-style none' so we do not
-		break upgrades from the version 2 DHCP server. If we do not
-		default to something dhcpd will refuse to start in the absence
-		of the ddns-update-style statement - peloy@debian.org
-	*/
-	ddns_update_style = 0;
 	oc = lookup_option (&server_universe, options, SV_DDNS_UPDATE_STYLE);
 	if (oc) {
 		if (evaluate_option_cache (&db, (struct packet *)0,
@@ -775,6 +1037,8 @@ void postconf_initialization (int quiet)
 				log_fatal ("invalid dns update type");
 			data_string_forget (&db, MDL);
 		}
+	} else {
+		ddns_update_style = DDNS_UPDATE_STYLE_NONE;
 	}
 
 	oc = lookup_option (&server_universe, options, SV_LOG_FACILITY);
@@ -787,21 +1051,15 @@ void postconf_initialization (int quiet)
 					   &global_scope, oc, MDL)) {
 			if (db.len == 1) {
 				closelog ();
-#ifdef SYSLOG_4_2
-				openlog ("dhcpd", LOG_NDELAY);
-				log_priority = db.data [0];
-#else
-				openlog ("dhcpd",
-					 LOG_NDELAY, db.data [0]);
-#endif
+				openlog ("dhcpd", LOG_NDELAY, db.data[0]);
 				/* Log the startup banner into the new
 				   log file. */
 				if (!quiet) {
 					/* Don't log to stderr twice. */
 					tmp = log_perror;
 					log_perror = 0;
-					log_info ("%s %s",
-						  message, DHCP_VERSION);
+					log_info("%s %s",
+						 message, PACKAGE_VERSION);
 					log_info (copyright);
 					log_info (arr);
 					log_info (url);
@@ -811,6 +1069,34 @@ void postconf_initialization (int quiet)
 				log_fatal ("invalid log facility");
 			data_string_forget (&db, MDL);
 		}
+	}
+	
+	oc = lookup_option(&server_universe, options, SV_DELAYED_ACK);
+	if (oc &&
+	    evaluate_option_cache(&db, NULL, NULL, NULL, options, NULL,
+				  &global_scope, oc, MDL)) {
+		if (db.len == 2) {
+			max_outstanding_acks = htons(getUShort(db.data));
+		} else {
+			log_fatal("invalid max delayed ACK count ");
+		}
+		data_string_forget(&db, MDL);
+	}
+
+	oc = lookup_option(&server_universe, options, SV_MAX_ACK_DELAY);
+	if (oc &&
+	    evaluate_option_cache(&db, NULL, NULL, NULL, options, NULL,
+				  &global_scope, oc, MDL)) {
+		u_int32_t timeval;
+
+		if (db.len != 4)
+			log_fatal("invalid max ack delay configuration");
+
+		timeval = getULong(db.data);
+		max_ack_delay_secs  = timeval / 1000000;
+		max_ack_delay_usecs = timeval % 1000000;
+
+		data_string_forget(&db, MDL);
 	}
 
 	/* Don't need the options anymore. */
@@ -840,20 +1126,22 @@ void postconf_initialization (int quiet)
 		}
 
 		/* Set up the standard name service updater routine. */
-		parse = (struct parse *)0;
-		result = new_parse (&parse, -1,
-				 old_nsupdate, (sizeof old_nsupdate) - 1,
-				 "old name service update routine", 0);
+		parse = NULL;
+		result = new_parse(&parse, -1, old_nsupdate,
+				   sizeof(old_nsupdate) - 1,
+				   "old name service update routine", 0);
 		if (result != ISC_R_SUCCESS)
 			log_fatal ("can't begin parsing old ddns updater!");
 
-		tmp = 0;
-		if (!(parse_executable_statements (e, parse,
-						   &tmp, context_any))) {
-			end_parse (&parse);
-			log_fatal ("can't parse standard ddns updater!");
+		if (parse != NULL) {
+			tmp = 0;
+			if (!(parse_executable_statements(e, parse, &tmp,
+							  context_any))) {
+				end_parse(&parse);
+				log_fatal("can't parse standard ddns updater!");
+			}
 		}
-		end_parse (&parse);
+		end_parse(&parse);
 	}
 #endif
 }
@@ -869,25 +1157,36 @@ void postdb_startup (void)
 	/* Initialize the failover listener state. */
 	dhcp_failover_startup ();
 #endif
+
+	/*
+	 * Begin our lease timeout background task.
+	 */
+	schedule_all_ipv6_lease_timeouts();
 }
 
 /* Print usage message. */
 
-static void usage ()
-{
-	log_info ("%s %s", message, DHCP_VERSION);
-	log_info (copyright);
-	log_info (arr);
+static void
+usage(void) {
+	log_info("%s %s", message, PACKAGE_VERSION);
+	log_info(copyright);
+	log_info(arr);
 
-	log_fatal ("Usage: dhcpd [-p <UDP port #>] [-d] [-f]%s%s%s%s",
-		   "\n             [-cf config-file] [-lf lease-file]",
+	log_fatal("Usage: dhcpd [-p <UDP port #>] [-f] [-d] [-q] [-t|-T]\n"
+#ifdef DHCPv6
+		  "             [-4|-6] [-cf config-file] [-lf lease-file]\n"
+#else /* !DHCPv6 */
+		  "             [-cf config-file] [-lf lease-file]\n"
+#endif /* DHCPv6 */
+#if defined (PARANOIA)
+		   /* meld into the following string */
+		  "             [-user user] [-group group] [-chroot dir]\n"
+#endif /* PARANOIA */
 #if defined (TRACING)
-		   "\n		   [-tf trace-output-file]",
-		   "\n		   [-play trace-input-file]",
-#else
-		   "", "",
+		  "             [-tf trace-output-file]\n"
+		  "             [-play trace-input-file]\n"
 #endif /* TRACING */
-		   "\n             [-t] [-T] [-s server] [if0 [...ifN]]");
+		  "             [-pf pid-file] [-s server] [if0 [...ifN]]");
 }
 
 void lease_pinged (from, packet, length)
@@ -972,7 +1271,6 @@ int dhcpd_interface_setup_hook (struct interface_info *ip, struct iaddr *ia)
 	   necessary. */
 	if (!ia) {
 		const char *fnn = "fallback-net";
-		char *s;
 		status = shared_network_allocate (&ip -> shared_network, MDL);
 		if (status != ISC_R_SUCCESS)
 			log_fatal ("No memory for shared subnet: %s",
@@ -1059,10 +1357,11 @@ isc_result_t dhcp_io_shutdown (omapi_object_t *obj, void *foo)
 
 static isc_result_t dhcp_io_shutdown_countdown (void *vlp)
 {
-	dhcp_failover_state_t *state;
 #if defined (FAILOVER_PROTOCOL)
+	dhcp_failover_state_t *state;
 	int failover_connection_count = 0;
 #endif
+	struct timeval tv;
 
       oncemore:
 	if (shutdown_state == shutdown_listeners ||
@@ -1148,7 +1447,9 @@ static isc_result_t dhcp_io_shutdown_countdown (void *vlp)
 		shutdown_time = cur_time;
 		goto oncemore;
 	}
-	add_timeout (cur_time + 1,
+	tv.tv_sec = cur_tv.tv_sec + 1;
+	tv.tv_usec = cur_tv.tv_usec;
+	add_timeout (&tv,
 		     (void (*)(void *))dhcp_io_shutdown_countdown, 0, 0, 0);
 	return ISC_R_SUCCESS;
 }

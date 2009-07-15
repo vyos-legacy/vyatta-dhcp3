@@ -1,8 +1,7 @@
 Source: vyatta-dhcp3
 Section: net
 Priority: important
-Maintainer: Marat Nepomnyashy <marat@vyatta.com>
-Uploaders: Matt Zimmerman <mdz@debian.org>, Andrew Pollock <apollock@debian.org>, Eloy A. Paris <peloy@debian.org>
+Maintainer: Vyatta Package Maintainers <maintainers@vyatta.com>
 Build-Depends: debhelper (>= 4.1.16), dpkg-dev (>= 1.13.2), groff, dpatch, po-debconf
 Standards-Version: 3.7.2.2
 
@@ -10,7 +9,7 @@ Package: vyatta-dhcp3-server
 Priority: optional
 Architecture: any
 Depends: debianutils (>= 2.8.2),
- vyatta-dhcp3-common (= ${Source-Version}),
+ vyatta-dhcp3-common (= ${binary:Version}),
  ${shlibs:Depends},
  ${misc:Depends}
 Conflicts: dhcp, dhcp3-server
@@ -34,23 +33,13 @@ Depends: debianutils (>= 2.8.2),
  ${misc:Depends}
 Conflicts: dhcp3-common
 Description: Vyattanized common files used by all the vyatta-dhcp3* packages
- This package contains the files used by all the packages from the Vyattanized ISC
- DHCP version 3.
-
-Package: vyatta-dhcp3-dev
-Priority: optional
-Architecture: any
-Section: devel
-Depends: libc6-dev
-Conflicts: dhcp3-dev
-Description: Vyattanized API for accessing and modifying the DHCP server and client state
- OMAPI is an API for accessing and modifying the DHCP server and
- client state.
+ This package contains the files used by all the packages from the
+ Vyattanized ISC DHCP version 3.
 
 Package: vyatta-dhcp3-client
 Architecture: any
 Depends: debianutils (>= 2.8.2),
- vyatta-dhcp3-common (= ${Source-Version}),
+ vyatta-dhcp3-common (= ${binary:Version}),
  ${shlibs:Depends},
  ${misc:Depends}
 Suggests: resolvconf, avahi-autoipd
@@ -70,21 +59,11 @@ Description: Vyattanized DHCP client
  .
  Extra documentation can be found in the package dhcp3-common.
 
-Package: vyatta-dhcp3-client-udeb
-Priority: extra
-Architecture: any
-Section: debian-installer
-Depends: ${shlibs:Depends}
-Conflicts: dhcp3-client-udeb
-XC-Package-Type: udeb
-Description: Vyattanized DHCP Client for debian-installer
- dhcp-client-udeb is a minimal dhcp package used by the debian-installer.
-
 Package: vyatta-dhcp3-relay
 Priority: optional
 Architecture: any
 Depends: debianutils (>= 2.8.2),
- vyatta-dhcp3-common (= ${Source-Version}),
+ vyatta-dhcp3-common (= ${binary:Version}),
  ${shlibs:Depends},
  ${misc:Depends}
 Conflicts: dhcp-relay, dhcp3-relay

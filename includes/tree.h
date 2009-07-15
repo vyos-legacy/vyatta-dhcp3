@@ -3,7 +3,7 @@
    Definitions for address trees... */
 
 /*
- * Copyright (c) 2004-2007 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004,2007-2008 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1996-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -51,6 +51,7 @@ struct enumeration_value {
 struct enumeration {
 	struct enumeration *next;
 	const char *name;
+	unsigned width;
 	struct enumeration_value *values;
 };	
 
@@ -74,6 +75,8 @@ struct buffer {
    XXX ephemeral by default and be made a persistent reference explicitly. */
 /* XXX on the other hand, it seems to work pretty nicely, so maybe the
    XXX above comment is meshuggenah. */
+/* XXX I think the above comment tries to say this: 
+   XXX    http://tinyurl.com/2tjqre */
 
 /* A string of data bytes, possibly accompanied by a larger buffer. */
 struct data_string {
@@ -190,13 +193,17 @@ enum expr_op {
 	expr_binary_and,
 	expr_binary_or,
 	expr_binary_xor,
-	expr_client_state
+	expr_client_state,
+	expr_ucase,
+	expr_lcase,
+	expr_regex_match,
+	expr_iregex_match
 };
 
 struct expression {
 	int refcnt;
 	enum expr_op op;
-	union {
+	union expr_union {
 		struct {
 			struct expression *expr;
 			struct expression *offset;
@@ -216,6 +223,8 @@ struct expression {
 			struct expression *expr;
 			struct expression *len;
 		} suffix;
+		struct expression *lcase;
+		struct expression *ucase;
 		struct option *option;
 		struct option *config_option;
 		struct {
@@ -297,7 +306,7 @@ struct universe {
 					     struct option_state *,
 					     unsigned);
 	void (*save_func) (struct universe *, struct option_state *,
-			   struct option_cache *);
+			   struct option_cache *, isc_boolean_t);
 	void (*foreach) (struct packet *,
 			 struct lease *, struct client_state *,
 			 struct option_state *, struct option_state *,
@@ -320,13 +329,19 @@ struct universe {
 			    struct option_state *, struct option_state *,
 			    struct binding_scope **,
 			    struct universe *);
+	u_int32_t (*get_tag) (const unsigned char *);
 	void (*store_tag) PROTO ((unsigned char *, u_int32_t));
+	u_int32_t (*get_length) (const unsigned char *);
 	void (*store_length) PROTO ((unsigned char *, u_int32_t));
 	int tag_size, length_size;
-	option_hash_t *hash;
-	struct option *options [256];
+	unsigned site_code_min, end;
+	option_name_hash_t *name_hash;
+	option_code_hash_t *code_hash;
 	struct option *enc_opt;
 	int index;
+
+	/* Flags should probably become condensed. */
+	int concat_duplicates;
 };
 
 struct option {
@@ -334,4 +349,5 @@ struct option {
 	const char *format;
 	struct universe *universe;
 	unsigned code;
+	int refcnt;
 };
