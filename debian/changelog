@@ -1,3 +1,9 @@
+vyatta-dhcp3 (3.0.6.dfsg-24+jenner6) unstable; urgency=low
+
+  * Change adminstrative distance for DHCP default routes
+
+ -- Stephen Hemminger <stephen.hemminger@vyatta.com>  Thu, 16 Jul 2009 11:42:31 -0700
+
 vyatta-dhcp3 (3.0.6.dfsg-24+jenner5) unstable; urgency=low
 
   * merge relevant 4.1.0p1 changes
