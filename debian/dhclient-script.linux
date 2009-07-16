@@ -121,9 +121,8 @@ set_address() {
     fi
 }
 
-# Zebra "distance" for DHCP routes, greater than static routes (1)
-# but less than first routing daemons (120)
-ZEBRA_ROUTE_DHCP=100
+# Administrative for DHCP routes. Should be configurable
+ZEBRA_ROUTE_DHCP=210
 
 update_routers() {
     if [ -n "$old_routers" ]; then
