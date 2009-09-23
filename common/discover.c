@@ -445,13 +445,9 @@ begin_iface_scan(struct iface_conf_list *ifaces) {
 #ifdef DHCPv6
 	ifaces->fp6 = fopen("/proc/net/if_inet6", "r");
 	if (ifaces->fp6 == NULL) {
+		/* issue warning, but it is not fatal */
 		log_error("Error opening '/proc/net/if_inet6' to "
 			  "list IPv6 interfaces; %m");
-		close(ifaces->sock);
-		ifaces->sock = -1;
-		fclose(ifaces->fp);
-		ifaces->fp = NULL;
-		return 0;
 	}
 #endif
 
@@ -608,6 +604,13 @@ next_iface6(struct iface_info *info, int *err, struct iface_conf_list *ifaces) {
 	struct sockaddr_in6 addr;
 	struct ifreq tmp;
 
+	if (ifaces->fp6 == NULL) {
+		log_error("Can't read IPv6 interface information");
+		/* not an error, just stop looking for IPv6 interfaces */
+		*err = 0;
+		return 0;
+	}
+
 	do {
 		/*
 		 *  Read the next line in the file.
@@ -736,7 +739,8 @@ end_iface_scan(struct iface_conf_list *ifaces) {
 	close(ifaces->sock);
 	ifaces->sock = -1;
 #ifdef DHCPv6
-	fclose(ifaces->fp6);
+	if (ifaces->fp6 != NULL)
+		fclose(ifaces->fp6);
 	ifaces->fp6 = NULL;
 #endif
 }
