@@ -1,3 +1,9 @@
+vyatta-dhcp3 (4.1.0+vyatta5) unstable; urgency=low
+
+  * Change adminstrative distance for DHCP default routes
+
+ -- Stephen Hemminger <shemminger@lenny.localdomain>  Thu, 01 Oct 2009 13:47:58 -0700
+
 vyatta-dhcp3 (4.1.0+vyatta4) unstable; urgency=low
 
   * Bugfix 4951:  Don't fail if IPv6 kernel module is not loaded.
