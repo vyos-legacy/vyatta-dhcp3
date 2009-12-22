@@ -31,7 +31,7 @@ endif
 IVARS = DESTDIR=$(DESTDIR)
 
 BVARS = PREDEFINES='-D_PATH_DHCPD_DB=\"/var/lib/dhcp3/dhcpd.leases\" \
-	-D_PATH_DHCCP_DB=\"/var/lib/dhcp3/dhcp6.leases\" \
+	-D_PATH_DHCPD6_DB=\"/var/lib/dhcp3/dhcp6.leases\" \
 	-D_PATH_DHCLIENT_DB=\"/var/lib/dhcp3/dhclient.leases\" \
 	-D_PATH_DHCLIENT6_DB=\"/var/lib/dhcp3/dhclient6.leases\" \
 	-D_PATH_DHCLIENT_SCRIPT=\"/sbin/dhclient-script\" \
