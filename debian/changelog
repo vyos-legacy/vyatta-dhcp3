@@ -1,3 +1,9 @@
+vyatta-dhcp3 (4.1.0+vyatta6) unstable; urgency=low
+
+  * Set explicit path for dhcp ipv6 info
+
+ -- Stephen Hemminger <stephen.hemminger@vyatta.com>  Tue, 22 Dec 2009 10:30:50 -0800
+
 vyatta-dhcp3 (4.1.0+vyatta5) unstable; urgency=low
 
   * Change adminstrative distance for DHCP default routes
