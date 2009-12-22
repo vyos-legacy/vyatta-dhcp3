@@ -14,7 +14,7 @@ PACKAGE = vyatta-dhcp3
 
 include /usr/share/dpatch/dpatch.make
 
-CFLAGS = -Wall -g
+CFLAGS = -Wall -g -D_GNU_SOURCE
 INSTALL = install
 INSTALL_FILE 	= $(INSTALL) -p -o root -g root -m 644
 INSTALL_PROGRAM = $(INSTALL) -p -o root -g root -m 755
@@ -31,7 +31,9 @@ endif
 IVARS = DESTDIR=$(DESTDIR)
 
 BVARS = PREDEFINES='-D_PATH_DHCPD_DB=\"/var/lib/dhcp3/dhcpd.leases\" \
+	-D_PATH_DHCCP_DB=\"/var/lib/dhcp3/dhcp6.leases\" \
 	-D_PATH_DHCLIENT_DB=\"/var/lib/dhcp3/dhclient.leases\" \
+	-D_PATH_DHCLIENT6_DB=\"/var/lib/dhcp3/dhclient6.leases\" \
 	-D_PATH_DHCLIENT_SCRIPT=\"/sbin/dhclient-script\" \
 	-D_PATH_DHCPD_CONF=\"/etc/dhcp3/dhcpd.conf\" \
         -D_PATH_DHCLIENT_CONF=\"/etc/dhcp3/dhclient.conf\"'
