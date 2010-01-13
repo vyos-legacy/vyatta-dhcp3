@@ -1,3 +1,9 @@
+vyatta-dhcp3 (4.1.0+vyatta8) unstable; urgency=low
+
+  * Enable stack protection for DHCP
+
+ -- Stephen Hemminger <stephen.hemminger@vyatta.com>  Tue, 12 Jan 2010 16:11:17 -0800
+
 vyatta-dhcp3 (4.1.0+vyatta7) unstable; urgency=low
 
   * Fix typo in last patch PATH_DHCPD6_DB
