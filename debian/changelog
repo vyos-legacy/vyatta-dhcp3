@@ -1,3 +1,9 @@
+vyatta-dhcp3 (4.1.0+vyatta9) unstable; urgency=low
+
+  * Build DHCP client/server as position independant executable
+
+ -- Stephen Hemminger <stephen.hemminger@vyatta.com>  Mon, 01 Feb 2010 15:18:53 -0800
+
 vyatta-dhcp3 (4.1.0+vyatta8) unstable; urgency=low
 
   * Enable stack protection for DHCP
