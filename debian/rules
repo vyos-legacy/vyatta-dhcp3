@@ -14,14 +14,14 @@ PACKAGE = vyatta-dhcp3
 
 include /usr/share/dpatch/dpatch.make
 
-CFLAGS = -Wall -g -D_GNU_SOURCE -fstack-protector
+CFLAGS = -Wall -g -D_GNU_SOURCE
 
 INSTALL = install
 INSTALL_FILE 	= $(INSTALL) -p -o root -g root -m 644
 INSTALL_PROGRAM = $(INSTALL) -p -o root -g root -m 755
 
-CFLAGS += -fstack-protector -fPIE
-LDFLAGS += -pie
+# Use hardening options
+export DEB_BUILD_HARDENING=1
 
 ifneq (,$(findstring noopt,$(DEB_BUILD_OPTIONS)))
 CFLAGS += -O0
