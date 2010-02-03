@@ -1,3 +1,9 @@
+vyatta-dhcp3 (4.1.0+vyatta10) unstable; urgency=low
+
+  * Use Debian hardening option
+
+ -- Stephen Hemminger <stephen.hemminger@vyatta.com>  Wed, 03 Feb 2010 14:07:47 -0800
+
 vyatta-dhcp3 (4.1.0+vyatta9) unstable; urgency=low
 
   * Build DHCP client/server as position independant executable
