@@ -133,22 +133,22 @@ update_routers() {
 
 	for router in $old_routers; do
 	    if [ "$old_subnet_mask" == "255.255.255.255" ]; then
-		vyatta-vtysh -c "conf t" -c "no ip route $router $interface $ZEBRA_ROUTE_DHCP"
+		vtysh -c "conf t" -c "no ip route $router $interface $ZEBRA_ROUTE_DHCP"
 	    fi
 
-	    vyatta-vtysh -c "conf t" -c "no ip route 0.0.0.0/0 $router $ZEBRA_ROUTE_DHCP"
+	    vtysh -c "conf t" -c "no ip route 0.0.0.0/0 $router $ZEBRA_ROUTE_DHCP"
 	done
     fi
 
     for router in $new_routers; do
 	# point to point
 	if [ "$new_subnet_mask" == "255.255.255.255" ]; then
-	    vyatta-vtysh -c "conf t" -c "ip route $router $interface $ZEBRA_ROUTE_DHCP"
+	    vtysh -c "conf t" -c "ip route $router $interface $ZEBRA_ROUTE_DHCP"
 	fi
 
 	# Note: this should really be $router and $interface but zebra does
 	# not have way to specify this (yet).
-	vyatta-vtysh -c "conf t" -c "ip route 0.0.0.0/0 $router $ZEBRA_ROUTE_DHCP"
+	vtysh -c "conf t" -c "ip route 0.0.0.0/0 $router $ZEBRA_ROUTE_DHCP"
     done
 }
 
