@@ -10,6 +10,7 @@ Priority: optional
 Architecture: any
 Depends: debianutils (>= 2.8.2),
  vyatta-dhcp3-common (= ${binary:Version}),
+ vyatta-quagga (>= 0.99.15-26),
  ${shlibs:Depends},
  ${misc:Depends}
 Conflicts: dhcp, dhcp3-server
