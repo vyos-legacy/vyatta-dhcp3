@@ -1,3 +1,9 @@
+vyatta-dhcp3 (4.1.0+vyatta12) unstable; urgency=low
+
+  * Use vtysh not vyatta-vtysh
+
+ -- Stephen Hemminger <stephen.hemminger@vyatta.com>  Mon, 08 Mar 2010 16:35:24 -0800
+
 vyatta-dhcp3 (4.1.0+vyatta11) unstable; urgency=low
 
   * UNRELEASED
