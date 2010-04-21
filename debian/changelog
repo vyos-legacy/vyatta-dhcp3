@@ -1,3 +1,10 @@
+vyatta-dhcp3 (4.1.0+vyatta15) unstable; urgency=low
+
+  * Don't flush all perminent IPv6 addresses from interface when
+    renewing.
+
+ -- Bob Gilligan <gilligan@vyatta.com>  Wed, 21 Apr 2010 15:06:10 -0700
+
 vyatta-dhcp3 (4.1.0+vyatta14) unstable; urgency=low
 
   * Update DHCP client back-end script for DHCPv6.
