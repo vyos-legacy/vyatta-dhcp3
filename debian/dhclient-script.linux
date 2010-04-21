@@ -266,9 +266,6 @@ case "$reason" in
         # Ensure interface is up.
         ${ip} link set ${interface} up
 
-        # Remove any stale addresses from aborted clients.
-	${ip} -f inet6 addr flush dev ${interface} scope global permanent
-
 	exit_with_hooks 0
 	;;
 
