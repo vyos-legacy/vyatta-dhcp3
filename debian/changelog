@@ -1,3 +1,13 @@
+vyatta-dhcp3 (4.1.0+vyatta16) unstable; urgency=low
+
+  [ Mohit Mehta ]
+  * merge 4.1.0p1
+
+  [ Bob Gilligan ]
+  * ISC DHCP version 4.1.1.
+
+ -- Bob Gilligan <gilligan@vyatta.com>  Thu, 20 May 2010 16:37:03 -0700
+
 vyatta-dhcp3 (4.1.0+vyatta15) unstable; urgency=low
 
   * Don't flush all perminent IPv6 addresses from interface when
