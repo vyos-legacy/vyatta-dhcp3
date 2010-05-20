@@ -3,4 +3,8 @@ files
 patched
 *.debhelper
 *.log
-vyatta-dhcp3-*
+vyatta-dhcp3-client
+vyatta-dhcp3-common
+vyatta-dhcp3-relay
+vyatta-dhcp3-server
+

@@ -3,7 +3,7 @@
    DHCP Client. */
 
 /*
- * Copyright (c) 2004-2009 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2010 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1995-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -22,7 +22,7 @@
  *   950 Charter Street
  *   Redwood City, CA 94063
  *   <info@isc.org>
- *   http://www.isc.org/
+ *   https://www.isc.org/
  *
  * This code is based on the original client state machine that was
  * written by Elliot Poger.  The code has been extensively hacked on
@@ -62,10 +62,12 @@ struct data_string default_duid;
    assert (state_is == state_shouldbe). */
 #define ASSERT_STATE(state_is, state_shouldbe) {}
 
-static char copyright[] = "Copyright 2004-2009 Internet Systems Consortium.";
-static char arr [] = "All rights reserved.";
-static char message [] = "Internet Systems Consortium DHCP Client";
-static char url [] = "For info, please visit http://www.isc.org/sw/dhcp/";
+static const char copyright[] = 
+"Copyright 2004-2010 Internet Systems Consortium.";
+static const char arr [] = "All rights reserved.";
+static const char message [] = "Internet Systems Consortium DHCP Client";
+static const char url [] = 
+"For info, please visit https://www.isc.org/software/dhcp/";
 
 u_int16_t local_port = 0;
 u_int16_t remote_port = 0;
@@ -111,7 +113,6 @@ main(int argc, char **argv) {
 #endif /* DHCPv6 */
 	char *s;
 
-	chdir("/");
 	/* Initialize client globals. */
 	memset(&default_duid, 0, sizeof(default_duid));
 
@@ -173,7 +174,7 @@ main(int argc, char **argv) {
 		} else if (!strcmp(argv[i], "-p")) {
 			if (++i == argc)
 				usage();
-			local_port = htons(atoi(argv[i]));
+			local_port = validate_port(argv[i]);
 			log_debug("binding to user-specified port %d",
 				  ntohs(local_port));
 		} else if (!strcmp(argv[i], "-d")) {
@@ -369,7 +370,6 @@ main(int argc, char **argv) {
 		if ((pidfd = fopen(path_dhclient_pid, "r")) != NULL) {
 			e = fscanf(pidfd, "%ld\n", &temp);
 			oldpid = (pid_t)temp;
-                        log_info ("There is already a pid file %s with pid %i", path_dhclient_pid, oldpid);
 
 			if (e != 0 && e != EOF) {
 				if (oldpid)
@@ -1143,7 +1143,7 @@ void bind_lease (client)
 	/* If the BOUND/RENEW code detects another machine using the
 	   offered address, it exits nonzero.  We need to send a
 	   DHCPDECLINE and toss the lease. */
-	if (script_go (client) == 2) {
+	if (script_go (client)) {
 		make_decline (client, client -> new);
 		send_decline (client);
 		destroy_client_lease (client -> new);
@@ -3304,7 +3304,7 @@ void go_daemon ()
 
 	write_client_pid_file ();
 
-	chdir("/");
+	IGNORE_RET (chdir("/"));
 }
 
 void write_client_pid_file ()
