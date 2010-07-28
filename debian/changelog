@@ -1,3 +1,9 @@
+vyatta-dhcp3 (4.1.1+vyatta4) unstable; urgency=low
+
+  * ISC DHCP version 4.1.1-P1
+
+ -- Bob Gilligan <gilligan@vyatta.com>  Tue, 27 Jul 2010 20:13:21 -0700
+
 vyatta-dhcp3 (4.1.1+vyatta3) unstable; urgency=low
 
   * UNRELEASED
