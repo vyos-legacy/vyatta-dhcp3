@@ -2,7 +2,7 @@ Source: vyatta-dhcp3
 Section: net
 Priority: important
 Maintainer: Vyatta Package Maintainers <maintainers@vyatta.com>
-Build-Depends: debhelper (>= 4.1.16), dpkg-dev (>= 1.13.2), groff, dpatch, po-debconf
+Build-Depends: debhelper (>= 5), dpkg-dev (>= 1.13.2), po-debconf
 Standards-Version: 3.7.2.2
 
 Package: vyatta-dhcp3-server

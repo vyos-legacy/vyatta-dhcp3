@@ -35,3 +35,9 @@ build-stamp
 install-stamp
 patch-stamp
 work.linux-2.2
+
+debian/vyatta-dhcp3-client.substvars
+debian/vyatta-dhcp3-common.substvars
+debian/vyatta-dhcp3-relay.substvars
+debian/vyatta-dhcp3-server.substvars
+

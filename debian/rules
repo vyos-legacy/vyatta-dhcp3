@@ -12,8 +12,6 @@ DESTDIR = `pwd`/debian/tmp
 
 PACKAGE = vyatta-dhcp3
 
-include /usr/share/dpatch/dpatch.make
-
 CFLAGS = -Wall -g -D_GNU_SOURCE
 
 INSTALL = install
@@ -45,33 +43,18 @@ endif
 IVARS = DESTDIR=$(DESTDIR)
 
 
-#patch: patch-stamp
-#patch-stamp:
-#	dh_testdir
-#	if [ ! -f patch-stamp ]; then /bin/sh debian/scripts/patch-source; fi
-#	touch patch-stamp
-#
-#unpatch:
-#	dh_testdir
-#	if [ -f patch-stamp ]; then /bin/sh debian/scripts/unpatch-source; fi
-#	rm -f patch-stamp
-
-build: patch-stamp build-stamp
+build: build-stamp
 build-stamp:
 	dh_testdir
 
 	./configure --prefix=/usr
-	#CFLAGS="$(CFLAGS)" sh -x debian/scripts/insert_cflags.sh patch
-	#cat site.conf
 	$(MAKE)
 
 	touch build-stamp
 
-clean: unpatch
+clean:
 	dh_testdir
 	rm -f build-stamp install-stamp
-
-	#CFLAGS="$(CFLAGS)" sh -x debian/scripts/insert_cflags.sh unpatch
 
 	# Add here commands to clean up after the build process.
 	-$(MAKE) distclean
