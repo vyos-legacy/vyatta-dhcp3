@@ -1,3 +1,10 @@
+vyatta-dhcp3 (4.1.1+vyatta5) unstable; urgency=low
+
+  * fix squeeze build and clean up
+  * more cleanup
+
+ -- An-Cheng Huang <ancheng@vyatta.com>  Wed, 01 Sep 2010 10:54:56 -0700
+
 vyatta-dhcp3 (4.1.1+vyatta4) unstable; urgency=low
 
   * ISC DHCP version 4.1.1-P1
