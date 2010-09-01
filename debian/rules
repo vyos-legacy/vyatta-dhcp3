@@ -62,7 +62,8 @@ clean:
 	# Remove leftover junk...
 	rm -Rf work.*/
 
-	debconf-updatepo
+	# was doing a debconf-updatepo here, which doesn't make sense. po is
+	# supposed to be updated by developers when template changes.
 	dh_clean
 
 install: install-stamp
@@ -134,8 +135,9 @@ install-stamp: build-stamp
 	# Install Linux specific documentation
 ifeq ($(DEB_HOST_ARCH_OS), linux)
 	for p in vyatta-dhcp3-client vyatta-dhcp3-relay vyatta-dhcp3-server ; do \
-		install -d -m 755 `pwd`/debian/$p/usr/share/doc; \
-		install -m 644 `pwd`/debian/dhcp-on-linux.txt `pwd`/debian/$p/usr/share/doc; \
+		install -d -m 755 `pwd`/debian/$$p/usr/share/doc/$$p; \
+		install -m 644 `pwd`/debian/dhcp-on-linux.txt \
+			`pwd`/debian/$$p/usr/share/doc/$$p; \
 	done
 endif
 	$(INSTALL_FILE) debian/vyatta-dhcp3-client.lintian \
