@@ -1,5 +1,4 @@
 # standard debris
-.*
 *.o
 *.o.*
 *.a
