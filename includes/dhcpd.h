@@ -3,7 +3,7 @@
    Definitions for dhcpd... */
 
 /*
- * Copyright (c) 2004-2009 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2010 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1996-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -47,6 +47,7 @@
 #define fd_set cygwin_fd_set
 #include <sys/types.h>
 #endif
+#include <stddef.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -2121,9 +2122,11 @@ void dump_packet_option (struct option_cache *, struct packet *,
 			 struct binding_scope **, struct universe *, void *);
 void dump_packet PROTO ((struct packet *));
 void hash_dump PROTO ((struct hash_table *));
-char *print_hex_1 PROTO ((unsigned, const u_int8_t *, unsigned));
-char *print_hex_2 PROTO ((unsigned, const u_int8_t *, unsigned));
-char *print_hex_3 PROTO ((unsigned, const u_int8_t *, unsigned));
+char *print_hex PROTO ((unsigned, const u_int8_t *, unsigned, unsigned));
+void print_hex_only PROTO ((unsigned, const u_int8_t *, unsigned, char *));
+#define print_hex_1(len, data, limit) print_hex(len, data, limit, 0)
+#define print_hex_2(len, data, limit) print_hex(len, data, limit, 1)
+#define print_hex_3(len, data, limit) print_hex(len, data, limit, 2)
 char *print_dotted_quads PROTO ((unsigned, const u_int8_t *));
 char *print_dec_1 PROTO ((unsigned long));
 char *print_dec_2 PROTO ((unsigned long));
@@ -2198,6 +2201,7 @@ ssize_t receive_packet6(struct interface_info *interface,
 			unsigned int *if_index);
 void if_deregister6(struct interface_info *info);
 
+isc_result_t dhcp_handle_signal(int sig, void (*handler)(int));
 
 /* bpf.c */
 #if defined (USE_BPF_SEND) || defined (USE_BPF_RECEIVE)
@@ -3236,9 +3240,9 @@ const char *binding_state_print (enum failover_state);
 
 
 /* mdb6.c */
-HASH_FUNCTIONS_DECL(ia, unsigned char *, struct ia_xx, ia_hash_t);
+HASH_FUNCTIONS_DECL(ia, unsigned char *, struct ia_xx, ia_hash_t)
 HASH_FUNCTIONS_DECL(iasubopt, struct in6_addr *, struct iasubopt,
-		    iasubopt_hash_t);
+		    iasubopt_hash_t)
 
 isc_result_t iasubopt_allocate(struct iasubopt **iasubopt,
 			       const char *file, int line);

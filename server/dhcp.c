@@ -3,7 +3,7 @@
    DHCP Protocol engine. */
 
 /*
- * Copyright (c) 2004-2009 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2010 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1995-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -1066,10 +1066,14 @@ void dhcpinform (packet, ms_nulltp)
 				   packet -> options, (struct option_state *)0,
 				   &global_scope, oc, MDL)) {
 		i = d1.len;
-		if (i > sizeof raw.file)
-			i = sizeof raw.file;
-		else
-			raw.file [i] = 0;
+		if (i >= sizeof(raw.file)) {
+			log_info("file name longer than packet field "
+				 "truncated - field: %lu name: %d %.*s", 
+				 (unsigned long)sizeof(raw.file), i, i,
+				 d1.data);
+			i = sizeof(raw.file);
+		} else
+			raw.file[i] = 0;
 		memcpy (raw.file, d1.data, i);
 		data_string_forget (&d1, MDL);
 	}
@@ -1082,10 +1086,14 @@ void dhcpinform (packet, ms_nulltp)
 				   packet -> options, (struct option_state *)0,
 				   &global_scope, oc, MDL)) {
 		i = d1.len;
-		if (i > sizeof raw.sname)
-			i = sizeof raw.sname;
-		else
-			raw.sname [i] = 0;
+		if (i >= sizeof(raw.sname)) {
+			log_info("server name longer than packet field "
+				 "truncated - field: %lu name: %d %.*s", 
+				 (unsigned long)sizeof(raw.sname), i, i,
+				 d1.data);
+			i = sizeof(raw.sname);
+		} else
+			raw.sname[i] = 0;
 		memcpy (raw.sname, d1.data, i);
 		data_string_forget (&d1, MDL);
 	}
@@ -1203,6 +1211,13 @@ void dhcpinform (packet, ms_nulltp)
 			data_string_forget (&d1, MDL);
 		}
 	}
+
+	/*
+	 * Remove any time options, per section 3.4 RFC 2131
+	 */
+	delete_option(&dhcp_universe, options, DHO_DHCP_LEASE_TIME);
+	delete_option(&dhcp_universe, options, DHO_DHCP_RENEWAL_TIME);
+	delete_option(&dhcp_universe, options, DHO_DHCP_REBINDING_TIME);
 
 	/* Set up the option buffer... */
 	outgoing.packet_length =
@@ -2681,12 +2696,13 @@ void ack_lease (packet, lease, offer, when, msg, ms_nulltp, hp)
 
 	/* If we don't have a hostname yet, and we've been asked to do
 	   a reverse lookup to find the hostname, do it. */
+	i = DHO_HOST_NAME;
 	j = SV_GET_LEASE_HOSTNAMES;
-	if (!lookup_option (&server_universe, state -> options, i) &&
-	    (evaluate_boolean_option_cache
-	     (&ignorep, packet, lease, (struct client_state *)0,
-	      packet -> options, state -> options, &lease -> scope,
-	      lookup_option (&server_universe, state -> options, j), MDL))) {
+	if (!lookup_option(&dhcp_universe, state->options, i) &&
+	    evaluate_boolean_option_cache
+	     (&ignorep, packet, lease, NULL,
+	      packet->options, state->options, &lease->scope,
+	      lookup_option (&server_universe, state->options, j), MDL)) {
 		struct in_addr ia;
 		struct hostent *h;
 		
@@ -3000,6 +3016,12 @@ void dhcp_reply (lease)
 		if (sizeof raw.file > state -> filename.len)
 			memset (&raw.file [state -> filename.len], 0,
 				(sizeof raw.file) - state -> filename.len);
+		else 
+			log_info("file name longer than packet field "
+				 "truncated - field: %lu name: %d %.*s", 
+				 (unsigned long)sizeof(raw.file),
+				 state->filename.len, state->filename.len,
+				 state->filename.data);
 	} else
 		bufs |= 1;
 
@@ -3013,6 +3035,13 @@ void dhcp_reply (lease)
 		if (sizeof raw.sname > state -> server_name.len)
 			memset (&raw.sname [state -> server_name.len], 0,
 				(sizeof raw.sname) - state -> server_name.len);
+		else 
+			log_info("server name longer than packet field "
+				 "truncated - field: %lu name: %d %.*s", 
+				 (unsigned long)sizeof(raw.sname),
+				 state->server_name.len,
+				 state->server_name.len,
+				 state->server_name.data);
 	} else
 		bufs |= 2; /* XXX */
 
@@ -3429,7 +3458,6 @@ int find_lease (struct lease **lp,
 				  piaddr (hw_lease -> ip_addr));
 #endif
 			goto n_hw;
-			continue;
 		}
 		if (hw_lease -> subnet -> shared_network != share) {
 #if defined (DEBUG_FIND_LEASE)
@@ -3437,7 +3465,6 @@ int find_lease (struct lease **lp,
 				  piaddr (hw_lease -> ip_addr));
 #endif
 			goto n_hw;
-			continue;
 		}
 		if ((hw_lease -> pool -> prohibit_list &&
 		      permitted (packet, hw_lease -> pool -> prohibit_list)) ||
@@ -3788,26 +3815,46 @@ int find_lease (struct lease **lp,
 		lease_dereference (&hw_lease, MDL);
 	}
 
-	/* If we found a host_decl but no matching address, try to
-	   find a host_decl that has no address, and if there is one,
-	   hang it off the lease so that we can use the supplied
-	   options. */
-	if (lease && host && !lease -> host) {
-		struct host_decl *p = (struct host_decl *)0;
-		struct host_decl *n = (struct host_decl *)0;
-		host_reference (&p, host, MDL);
-		while (p) {
-			if (!p -> fixed_addr) {
-				host_reference (&lease -> host, p, MDL);
-				host_dereference (&p, MDL);
+	/*
+	 * If we found a host_decl but no matching address, try to
+	 * find a host_decl that has no address, and if there is one,
+	 * hang it off the lease so that we can use the supplied
+	 * options.
+	 */
+	if (lease && host && !lease->host) {
+		struct host_decl *p = NULL;
+		struct host_decl *n = NULL;
+
+		host_reference(&p, host, MDL);
+		while (p != NULL) {
+			if (!p->fixed_addr) {
+				/*
+				 * If the lease is currently active, then it
+				 * must be allocated to the present client.
+				 * We store a reference to the host record on
+				 * the lease to save a lookup later (in
+				 * ack_lease()).  We mustn't refer to the host
+				 * record on non-active leases because the
+				 * client may be denied later.
+				 *
+				 * XXX: Not having this reference (such as in
+				 * DHCPDISCOVER/INIT) means ack_lease will have
+				 * to perform this lookup a second time.  This
+				 * hopefully isn't a problem as DHCPREQUEST is
+				 * more common than DHCPDISCOVER.
+				 */
+				if (lease->binding_state == FTS_ACTIVE)
+					host_reference(&lease->host, p, MDL);
+
+				host_dereference(&p, MDL);
 				break;
 			}
-			if (p -> n_ipaddr)
-				host_reference (&n, p -> n_ipaddr, MDL);
-			host_dereference (&p, MDL);
-			if (n) {
-				host_reference (&p, n, MDL);
-				host_dereference (&n, MDL);
+			if (p->n_ipaddr != NULL)
+				host_reference(&n, p->n_ipaddr, MDL);
+			host_dereference(&p, MDL);
+			if (n != NULL) {
+				host_reference(&p, n, MDL);
+				host_dereference(&n, MDL);
 			}
 		}
 	}
@@ -4031,10 +4078,23 @@ int allocate_lease (struct lease **lp, struct packet *packet,
 			lease = candl;
 	}
 
-	if (lease) {
-		if (lease -> binding_state == FTS_ABANDONED)
-			log_error ("Reclaiming abandoned lease %s.",
-				   piaddr (lease -> ip_addr));
+	if (lease != NULL) {
+		if (lease->binding_state == FTS_ABANDONED)
+			log_error("Reclaiming abandoned lease %s.",
+				  piaddr(lease->ip_addr));
+
+		/*
+		 * XXX: For reliability, we go ahead and remove the host
+		 * record and try to move on.  For correctness, if there
+		 * are any other stale host vectors, we want to find them.
+		 */
+		if (lease->host != NULL) {
+			log_debug("soft impossible condition (%s:%d): stale "
+				  "host \"%s\" found on lease %s", MDL,
+				  lease->host->name,
+				  piaddr(lease->ip_addr));
+			host_dereference(&lease->host, MDL);
+		}
 
 		lease_reference (lp, lease, MDL);
 		return 1;

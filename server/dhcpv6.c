@@ -4196,10 +4196,25 @@ shared_network_from_packet6(struct shared_network **shared,
 	 * If there is no link address, we will use the interface
 	 * that this packet came in on to pick the shared_network.
 	 */
-	} else {
+	} else if (packet->interface != NULL) {
 		status = shared_network_reference(shared,
 					 packet->interface->shared_network,
 					 MDL);
+                if (packet->dhcpv6_container_packet != NULL) {
+			log_info("[L2 Relay] No link address in relay packet "
+				 "assuming L2 relay and using receiving "
+				 "interface");
+                }
+
+	} else {
+		/*
+		 * We shouldn't be able to get here but if there is no link
+		 * address and no interface we don't know where to get the
+		 * pool from log an error and return an error.
+		 */
+		log_error("No interface and no link address " 
+			  "can't determine pool");
+		status = ISC_R_INVALIDARG;
 	}
 
 	return status;
@@ -4235,7 +4250,7 @@ dhcpv6_confirm(struct data_string *reply_ret, struct packet *packet) {
 	isc_boolean_t inappropriate, has_addrs;
 	char reply_data[65536];
 	struct dhcpv6_packet *reply = (struct dhcpv6_packet *)reply_data;
-	int reply_ofs = (int)((char *)reply->options - (char *)reply);
+	int reply_ofs = (int)(offsetof(struct dhcpv6_packet, options));
 
 	/* 
 	 * Basic client message validation.
@@ -4592,7 +4607,7 @@ iterate_over_ia_na(struct data_string *reply_ret,
 	int iaaddr_is_found;
 	char reply_data[65536];
 	struct dhcpv6_packet *reply = (struct dhcpv6_packet *)reply_data;
-	int reply_ofs = (int)((char *)reply->options - (char *)reply);
+	int reply_ofs = (int)(offsetof(struct dhcpv6_packet, options));
 	char status_msg[32];
 	struct iasubopt *lease;
 	struct ia_xx *existing_ia_na;
@@ -5487,6 +5502,7 @@ dhcpv6_relay_forw(struct data_string *reply_ret, struct packet *packet) {
 
 	enc_packet->client_port = packet->client_port;
 	enc_packet->client_addr = packet->client_addr;
+	interface_reference(&enc_packet->interface, packet->interface, MDL);
 	enc_packet->dhcpv6_container_packet = packet;
 
 	msg_type = enc_opt_data.data[0];
@@ -5554,7 +5570,7 @@ dhcpv6_relay_forw(struct data_string *reply_ret, struct packet *packet) {
 	       sizeof(reply->link_address));
 	memcpy(reply->peer_address, &packet->dhcpv6_peer_address,
 	       sizeof(reply->peer_address));
-	reply_ofs = (int)((char *)reply->options - (char *)reply);
+	reply_ofs = (int)(offsetof(struct dhcpv6_relay_packet, options));
 
 	/*
 	 * Get the reply option state.

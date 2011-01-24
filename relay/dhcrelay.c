@@ -35,6 +35,7 @@
 #include "dhcpd.h"
 #include <syslog.h>
 #include <sys/time.h>
+#include <signal.h>
 
 TIME default_lease_time = 43200; /* 12 hours... */
 TIME max_lease_time = 86400; /* 24 hours... */
@@ -192,6 +193,14 @@ main(int argc, char **argv) {
 #if !defined(DEBUG)
 	setlogmask(LOG_UPTO(LOG_INFO));
 #endif	
+
+	/*
+	 * Set up the signal handlers, currently we only
+	 * have one to ignore sigpipe.
+	 */
+	if (dhcp_handle_signal(SIGPIPE, SIG_IGN) != ISC_R_SUCCESS) {
+		log_fatal("Can't set up signal handler");
+	}
 
 	/* Set up the OMAPI. */
 	status = omapi_init();
@@ -1349,7 +1358,7 @@ process_up6(struct packet *packet, struct stream_list *dp) {
 
 	/* Build the relay-forward header. */
 	relay = (struct dhcpv6_relay_packet *) forw_data;
-	cursor = sizeof(*relay);
+	cursor = offsetof(struct dhcpv6_relay_packet, options);
 	relay->msg_type = DHCPV6_RELAY_FORW;
 	if (packet->dhcpv6_msg_type == DHCPV6_RELAY_FORW) {
 		if (packet->dhcpv6_hop_count >= max_hop_count) {
@@ -1477,7 +1486,7 @@ process_down6(struct packet *packet) {
 	if (!evaluate_option_cache(&relay_msg, packet, NULL, NULL,
 				   packet->options, NULL,
 				   &global_scope, oc, MDL) ||
-	    (relay_msg.len < sizeof(struct dhcpv6_packet))) {
+	    (relay_msg.len < offsetof(struct dhcpv6_packet, options))) {
 		log_error("Can't evaluate relay-msg.");
 		return;
 	}
