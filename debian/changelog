@@ -1,3 +1,11 @@
+vyatta-dhcp3 (4.1.2+vyatta1+mendocino2) unstable; urgency=low
+
+  * ISC DHCP version 4.1.1-P1
+  * ISC DHCP version 4.1.2
+  * Merged ISC DHCP version 4.1.2.
+
+ -- Bob Gilligan <gilligan@vyatta.com>  Tue, 25 Jan 2011 14:56:03 -0800
+
 vyatta-dhcp3 (4.1.2+vyatta1+mendocino1) unstable; urgency=low
 
   * Merged ISC DHCP version 4.1.2
