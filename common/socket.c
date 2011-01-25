@@ -3,7 +3,7 @@
    BSD socket interface code... */
 
 /*
- * Copyright (c) 2004-2009 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2010 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1995-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -45,6 +45,7 @@
 #include <sys/ioctl.h>
 #include <sys/uio.h>
 #include <sys/uio.h>
+#include <signal.h>
 
 #ifdef USE_SOCKET_FALLBACK
 # if !defined (USE_SOCKET_SEND)
@@ -559,6 +560,21 @@ static size_t CMSG_SPACE(size_t len) {
 #endif /* DHCPv6 */
 
 #ifdef DHCPv6
+/*
+ * For both send_packet6() and receive_packet6() we need to allocate
+ * space for the cmsg header information.  We do this once and reuse
+ * the buffer.
+ */
+static void   *control_buf = NULL;
+static size_t  control_buf_len = 0;
+
+static void
+allocate_cmsg_cbuf(void) {
+	control_buf_len = CMSG_SPACE(sizeof(struct in6_pktinfo));
+	control_buf = dmalloc(control_buf_len, MDL);
+	return;
+}
+
 /* 
  * For both send_packet6() and receive_packet6() we need to use the 
  * sendmsg()/recvmsg() functions rather than the simpler send()/recv()
@@ -586,10 +602,20 @@ ssize_t send_packet6(struct interface_info *interface,
 	int result;
 	struct in6_pktinfo *pktinfo;
 	struct cmsghdr *cmsg;
-	union {
-		struct cmsghdr cmsg_sizer;
-		u_int8_t pktinfo_sizer[CMSG_SPACE(sizeof(struct in6_pktinfo))];
-	} control_buf;
+
+	/*
+	 * If necessary allocate space for the control message header.
+	 * The space is common between send and receive.
+	 */
+
+	if (control_buf == NULL) {
+		allocate_cmsg_cbuf();
+		if (control_buf == NULL) {
+			log_error("send_packet6: unable to allocate cmsg header");
+			return(ENOMEM);
+		}
+	}
+	memset(control_buf, 0, control_buf_len);
 
 	/*
 	 * Initialize our message header structure.
@@ -620,8 +646,8 @@ ssize_t send_packet6(struct interface_info *interface,
 	 * source address if we wanted, but we can safely let the
 	 * kernel decide what that should be. 
 	 */
-	m.msg_control = &control_buf;
-	m.msg_controllen = sizeof(control_buf);
+	m.msg_control = control_buf;
+	m.msg_controllen = control_buf_len;
 	cmsg = CMSG_FIRSTHDR(&m);
 	cmsg->cmsg_level = IPPROTO_IPV6;
 	cmsg->cmsg_type = IPV6_PKTINFO;
@@ -687,10 +713,20 @@ receive_packet6(struct interface_info *interface,
 	struct cmsghdr *cmsg;
 	struct in6_pktinfo *pktinfo;
 	int found_pktinfo;
-	union {
-	        struct cmsghdr cmsg_sizer;
-	        u_int8_t pktinfo_sizer[CMSG_SPACE(sizeof(struct in6_pktinfo))];
-	} control_buf;
+
+	/*
+	 * If necessary allocate space for the control message header.
+	 * The space is common between send and receive.
+	 */
+	if (control_buf == NULL) {
+		allocate_cmsg_cbuf();
+		if (control_buf == NULL) {
+			log_error("receive_packet6: unable to allocate cmsg "
+				  "header");
+			return(ENOMEM);
+		}
+	}
+	memset(control_buf, 0, control_buf_len);
 
 	/*
 	 * Initialize our message header structure.
@@ -721,8 +757,8 @@ receive_packet6(struct interface_info *interface,
 	 * information (when we initialized the interface), so we
 	 * should get the destination address from that.
 	 */
-	m.msg_control = &control_buf;
-	m.msg_controllen = sizeof(control_buf);
+	m.msg_control = control_buf;
+	m.msg_controllen = control_buf_len;
 
 	result = recvmsg(interface->rfdesc, &m, 0);
 
@@ -841,3 +877,26 @@ void maybe_setup_fallback ()
 #endif
 }
 #endif /* USE_SOCKET_SEND */
+
+/*
+ * Code to set a handler for signals.  This
+ * exists to allow us to ignore SIGPIPE signals
+ * but could be used for other purposes in the
+ * future.
+ */
+
+isc_result_t
+dhcp_handle_signal(int sig, void (*handler)(int)) {
+	struct sigaction sa;
+
+	memset(&sa, 0, sizeof(sa));
+	sa.sa_handler = handler;
+
+	if (sigfillset(&sa.sa_mask) != 0 ||
+	    sigaction(sig, &sa, NULL) < 0) {
+		log_error("Unable to set up signal handler for %d, %m", sig);
+		return (ISC_R_UNEXPECTED);
+	}
+
+	return (ISC_R_SUCCESS);
+}

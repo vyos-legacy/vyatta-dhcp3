@@ -1,6 +1,7 @@
-.\"	$Id: dhclient.conf.5,v 1.22.64.3 2009/07/23 19:02:09 sar Exp $
+.\"	$Id: dhclient.conf.5,v 1.22.64.7 2010/09/14 22:49:47 sar Exp $
 .\"
-.\" Copyright (c) 2004,2007,2009 by Internet Systems Consortium, Inc. ("ISC")
+.\" Copyright (c) 2009-2010 by Internet Systems Consortium, Inc. ("ISC")
+.\" Copyright (c) 2004,2007 by Internet Systems Consortium, Inc. ("ISC")
 .\" Copyright (c) 1996-2003 by Internet Software Consortium
 .\"
 .\" Permission to use, copy, modify, and distribute this software for any
@@ -23,10 +24,9 @@
 .\"
 .\" This software has been written for Internet Software Consortium
 .\" by Ted Lemon in cooperation with Vixie Enterprises and Nominum, Inc.
-.\" To learn more about Internet Software Consortium, see
-.\" ``https://www.isc.org/''.  To learn more about Vixie Enterprises,
-.\" see ``http://www.vix.com''.   To learn more about Nominum, Inc., see
-.\" ``http://www.nominum.com''.
+.\" 
+.\" Support and other services are available for ISC products - see
+.\" https://www.isc.org for more information or to learn more about ISC.
 .\"
 .TH dhclient.conf 5
 .SH NAME
@@ -184,11 +184,12 @@ are called \fIDHCP Options\fR.  DHCP Options are defined in
 The request statement causes the client to request that any server
 responding to the client send the client its values for the specified
 options.   Only the option names should be specified in the request
-statement - not option parameters.   By default, the DHCP server
+statement - not option parameters.   By default, the DHCPv4 client
 requests the subnet-mask, broadcast-address, time-offset, routers,
-domain-name, domain-name-servers and host-name options.  Note that if
-you enter a 'request' statement, you over-ride this default and these
-options will not be requested.
+domain-name, domain-name-servers and host-name options while the DHCPv6
+client requests the dhcp6 name-servers and domain-search options.  Note
+that if you enter a \'request\' statement, you over-ride these defaults
+and these options will not be requested.
 .PP
 In some cases, it may be desirable to send no parameter request list
 at all.   To do this, simply write the request statement but specify
@@ -200,7 +201,7 @@ no parameters:
 .PP
 In most cases, it is desirable to simply add one option to the request
 list which is of interest to the client in question.  In this case, it
-is best to 'also request' the additional options:
+is best to \'also request\' the additional options:
 .PP
 .nf
 	also request domain-search, dhcp6.sip-servers-addresses;
@@ -234,22 +235,11 @@ The send statement causes the client to send the specified options to
 the server with the specified values.  These are full option
 declarations as described in \fBdhcp-options(5)\fR.  Options that are
 always sent in the DHCP protocol should not be specified here, except
-that the client can specify a \fBrequested-lease-time\fR option other
+that the client can specify a requested \fBdhcp-lease-time\fR option other
 than the default requested lease time, which is two hours.  The other
 obvious use for this statement is to send information to the server
 that will allow it to differentiate between this client and other
 clients or kinds of clients.
-.SH DHCPV6 OPERATION
-The client does not yet have a default DHCPv6 Option Request Option (ORO),
-nor has it been integrated with the 'request' and 'require' syntax above.
-It is neccessary to configure an ORO then.
-.PP
-.nf
-  send dhcp6.oro 1, 2, 7, 12, 13, 23, 24, 39;
-.fi
-.PP
-The above ORO will request both identifiers (server, client), the preference,
-unicast, nameservers, domain-search, and FQDN(v6) options.
 .SH DYNAMIC DNS
 The client now has some very limited support for doing DNS updates
 when a lease is acquired.   This is prototypical, and probably doesn't
@@ -680,7 +670,7 @@ interface "ep0" {
     send host-name "andare.fugue.com";
     send dhcp-client-identifier 1:0:a0:24:ab:fb:9c;
     send dhcp-lease-time 3600;
-    supersede domain-name "fugue.com rc.vix.com home.vix.com";
+    supersede domain-search "fugue.com", "rc.vix.com", "home.vix.com";
     prepend domain-name-servers 127.0.0.1;
     request subnet-mask, broadcast-address, time-offset, routers,
 	    domain-name, domain-name-servers, host-name;
