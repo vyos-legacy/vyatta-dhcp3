@@ -135,6 +135,14 @@ main(int argc, char **argv) {
 	setlogmask(LOG_UPTO(LOG_INFO));
 #endif
 
+	/*
+	 * Set up the signal handlers, currently we only
+	 * have one to ignore sigpipe.
+	 */
+	if (dhcp_handle_signal(SIGPIPE, SIG_IGN) != ISC_R_SUCCESS) {
+		log_fatal("Can't set up signal handler");
+	}
+
 	/* Set up the OMAPI. */
 	status = omapi_init();
 	if (status != ISC_R_SUCCESS)
@@ -522,7 +530,7 @@ main(int argc, char **argv) {
 					    sizeof seed], sizeof seed);
 		seed += junk;
 	}
-	srandom(seed + cur_time);
+	srandom(seed + cur_time + (unsigned)getpid());
 
 	/* Start a configuration state machine for each interface. */
 #ifdef DHCPv6

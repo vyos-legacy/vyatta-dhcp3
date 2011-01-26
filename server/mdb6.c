@@ -1,4 +1,5 @@
 /*
+ * Copyright (C) 2010 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (C) 2007-2008 by Internet Systems Consortium, Inc. ("ISC")
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -17,6 +18,8 @@
 /* TODO: assert() */
 /* TODO: simplify functions, as pool is now in iaaddr */
 
+#include "config.h"
+
 #include <sys/types.h>
 #include <time.h>
 #include <netinet/in.h>
@@ -30,14 +33,14 @@
 #include "dst/md5.h"
 
 HASH_FUNCTIONS(ia, unsigned char *, struct ia_xx, ia_hash_t,
-	       ia_reference, ia_dereference, do_string_hash);
+	       ia_reference, ia_dereference, do_string_hash)
 
 ia_hash_t *ia_na_active;
 ia_hash_t *ia_ta_active;
 ia_hash_t *ia_pd_active;
 
 HASH_FUNCTIONS(iasubopt, struct in6_addr *, struct iasubopt, iasubopt_hash_t,
-	       iasubopt_reference, iasubopt_dereference, do_string_hash);
+	       iasubopt_reference, iasubopt_dereference, do_string_hash)
 
 struct ipv6_pool **pools;
 int num_pools;
