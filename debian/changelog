@@ -1,3 +1,9 @@
+vyatta-dhcp3 (4.1.2+vyatta1+mendocino3) unstable; urgency=low
+
+  * Merge branch 'upstream' into napa
+
+ -- Bob Gilligan <gilligan@vyatta.com>  Fri, 25 Mar 2011 02:06:03 -0700
+
 vyatta-dhcp3 (4.1.2+vyatta1+mendocino2) unstable; urgency=low
 
   * ISC DHCP version 4.1.1-P1
