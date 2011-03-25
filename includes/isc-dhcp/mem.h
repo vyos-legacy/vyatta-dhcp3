@@ -15,7 +15,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: mem.h,v 1.2 2007/11/16 11:04:11 shane Exp $ */
+/* $Id: mem.h,v 1.2 2007-11-16 11:04:11 shane Exp $ */
 
 #ifndef ISC_MEM_H
 #define ISC_MEM_H 1
