@@ -3,7 +3,7 @@
    Find and identify the network interfaces. */
 
 /*
- * Copyright (c) 2004-2009 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2009,2011 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1995-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -61,10 +61,10 @@ struct in_addr local_address;
 struct in6_addr local_address6;
 #endif /* DHCPv6 */
 
-void (*bootp_packet_handler) PROTO ((struct interface_info *,
-				     struct dhcp_packet *, unsigned,
-				     unsigned int,
-				     struct iaddr, struct hardware *));
+void (*bootp_packet_handler) (struct interface_info *,
+			      struct dhcp_packet *, unsigned,
+			      unsigned int,
+			      struct iaddr, struct hardware *);
 
 #ifdef DHCPv6
 void (*dhcpv6_packet_handler)(struct interface_info *,
@@ -309,12 +309,15 @@ int
 next_iface(struct iface_info *info, int *err, struct iface_conf_list *ifaces) {
 	struct LIFREQ *p;
 	struct LIFREQ tmp;
+	isc_boolean_t foundif;
 #if defined(sun) || defined(__linux)
 	/* Pointer used to remove interface aliases. */
 	char *s;
 #endif
 
 	do {
+		foundif = ISC_FALSE;
+
 		if (ifaces->next >= ifaces->num) {
 			*err = 0;
 			return 0;
@@ -328,6 +331,13 @@ next_iface(struct iface_info *info, int *err, struct iface_conf_list *ifaces) {
 			log_error("Interface name '%s' too long", p->lifr_name);
 			return 0;
 		}
+
+		/* Reject if interface address family does not match */
+		if (p->lifr_addr.ss_family != local_family) {
+			ifaces->next++;
+			continue;
+		}
+
 		strcpy(info->name, p->lifr_name);
 		memset(&info->addr, 0, sizeof(info->addr));
 		memcpy(&info->addr, &p->lifr_addr, sizeof(p->lifr_addr));
@@ -340,7 +350,9 @@ next_iface(struct iface_info *info, int *err, struct iface_conf_list *ifaces) {
 		}
 #endif /* defined(sun) || defined(__linux) */
 
-	} while (strncmp(info->name, "dummy", 5) == 0);
+		foundif = ISC_TRUE;
+	} while ((foundif == ISC_FALSE) ||
+		 (strncmp(info->name, "dummy", 5) == 0));
 	
 	memset(&tmp, 0, sizeof(tmp));
 	strcpy(tmp.lifr_name, info->name);
@@ -958,7 +970,12 @@ discover_interfaces(int state) {
 		   point-to-point in case an OS incorrectly marks them
 		   as broadcast). Also skip down interfaces unless we're
 		   trying to get a list of configurable interfaces. */
-		if (((!(info.flags & IFF_BROADCAST) ||
+		if ((((local_family == AF_INET &&
+		    !(info.flags & IFF_BROADCAST)) ||
+#ifdef DHCPv6
+		    (local_family == AF_INET6 &&
+		    !(info.flags & IFF_MULTICAST)) ||
+#endif
 		      info.flags & IFF_LOOPBACK ||
 		      info.flags & IFF_POINTOPOINT) && !tmp) ||
 		    (!(info.flags & IFF_UP) &&
@@ -1378,13 +1395,36 @@ isc_result_t got_one (h)
 	if (result == 0)
 		return ISC_R_UNEXPECTED;
 
-	/* If we didn't at least get the fixed portion of the BOOTP
-	   packet, drop the packet.  We're allowing packets with no
-	   sname or filename, because we're aware of at least one
-	   client that sends such packets, but this definitely falls
-	   into the category of being forgiving. */
-	if (result < DHCP_FIXED_NON_UDP - DHCP_SNAME_LEN - DHCP_FILE_LEN)
+	/*
+	 * If we didn't at least get the fixed portion of the BOOTP
+	 * packet, drop the packet.
+	 * Previously we allowed packets with no sname or filename
+	 * as we were aware of at least one client that did.  But
+	 * a bug caused short packets to not work and nobody has
+	 * complained, it seems rational to tighten up that
+	 * restriction.
+	 */
+	if (result < DHCP_FIXED_NON_UDP)
 		return ISC_R_UNEXPECTED;
+
+#if defined(IP_PKTINFO) && defined(IP_RECVPKTINFO) && defined(USE_V4_PKTINFO)
+	{
+		/* We retrieve the ifindex from the unused hfrom variable */
+		unsigned int ifindex;
+
+		memcpy(&ifindex, hfrom.hbuf, sizeof (ifindex));
+
+		/*
+		 * Seek forward from the first interface to find the matching
+		 * source interface by interface index.
+		 */
+		ip = interfaces;
+		while ((ip != NULL) && (if_nametoindex(ip->name) != ifindex))
+			ip = ip->next;
+		if (ip == NULL)
+			return ISC_R_NOTFOUND;
+	}
+#endif
 
 	if (bootp_packet_handler) {
 		ifrom.len = 4;
@@ -1443,6 +1483,7 @@ got_one_v6(omapi_object_t *h) {
 		memcpy(ifrom.iabuf, &from.sin6_addr, ifrom.len);
 
 		/* Seek forward to find the matching source interface. */
+		ip = interfaces;
 		while ((ip != NULL) && (if_nametoindex(ip->name) != if_idx))
 			ip = ip->next;
 

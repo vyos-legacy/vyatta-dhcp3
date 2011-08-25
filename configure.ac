@@ -1,4 +1,4 @@
-AC_INIT([DHCP], [4.1.2-P1], [dhcp-users@isc.org])
+AC_INIT([DHCP], [4.1-ESV-R3], [dhcp-users@isc.org])
 
 # we specify "foreign" to avoid having to have the GNU mandated files,
 # like AUTHORS, COPYING, and such
@@ -141,6 +141,24 @@ fi
 if test "$enable_early_chroot" = "yes" ; then
 	AC_DEFINE([EARLY_CHROOT], [1],
 		  [Define to any value to chroot() prior to loading config.])
+fi
+
+AC_ARG_ENABLE(IPv4_PKTINFO,
+	AC_HELP_STRING([--enable-ipv4-pktinfo],
+		[enable use of pktinfo on IPv4 sockets (default is no)]))
+
+if test "$enable_ipv4_pktinfo" = "yes"; then
+	AC_DEFINE([USE_V4_PKTINFO], [1],
+		[Define to 1 to enable IPv4 packet info support.])
+fi
+
+AC_ARG_ENABLE(USE_SOCKETS,
+	AC_HELP_STRING([--enable-use-sockets],
+		[use the standard BSD socket API (default is no)]))
+
+if test "$enable_use_sockets" = "yes"; then
+	AC_DEFINE([USE_SOCKETS], [1],
+		[Define to 1 to use the standard BSD socket API.])
 fi
 
 ###
@@ -317,6 +335,12 @@ AC_ARG_WITH(relay-pid-file,
 		        (default is LOCALSTATEDIR/run/dhcrelay.pid)]),
 	AC_DEFINE_UNQUOTED([_PATH_DHCRELAY_PID], ["$withval"],
 			   [File for dhcrelay process information.]))
+AC_ARG_WITH(relay6-pid-file,
+	AC_HELP_STRING([--with-relay6-pid-file=PATH],
+		       [File for dhcrelay6 process information
+		        (default is LOCALSTATEDIR/run/dhcrelay6.pid)]),
+	AC_DEFINE_UNQUOTED([_PATH_DHCRELAY6_PID], ["$withval"],
+			   [File for dhcrelay6 process information.]))
 
 # Check basic types.
 AC_TYPE_INT8_T
@@ -424,10 +448,6 @@ AC_TRY_LINK(
 
 # Look for optional headers.
 AC_CHECK_HEADERS(sys/socket.h net/if_dl.h net/if6.h regex.h)
-
-# find an MD5 library
-AC_SEARCH_LIBS(MD5_Init, [crypto])
-AC_SEARCH_LIBS(MD5Init, [crypto])
 
 # Solaris needs some libraries for functions
 AC_SEARCH_LIBS(socket, [socket])

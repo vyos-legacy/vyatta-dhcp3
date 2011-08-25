@@ -3,6 +3,7 @@
    Failover protocol support code... */
 
 /*
+ * Copyright (c) 2011 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 2004-2009 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1999-2003 by Internet Software Consortium
  *
@@ -51,7 +52,7 @@ static void dhcp_failover_pool_balance(dhcp_failover_state_t *state);
 static void dhcp_failover_pool_reqbalance(dhcp_failover_state_t *state);
 static int dhcp_failover_pool_dobalance(dhcp_failover_state_t *state,
 					isc_boolean_t *sendreq);
-static INLINE int secondary_not_hoarding(dhcp_failover_state_t *state,
+static inline int secondary_not_hoarding(dhcp_failover_state_t *state,
 					 struct pool *p);
 
 
@@ -1101,7 +1102,8 @@ isc_result_t dhcp_failover_listener_signal (omapi_object_t *o,
 	}		
 	if (!state) {
 		log_info ("failover: listener: no matching state");
-		return omapi_disconnect ((omapi_object_t *)c, 1);
+		omapi_disconnect ((omapi_object_t *)c, 1);
+		return(ISC_R_NOTFOUND);
 	}
 
 	obj = (dhcp_failover_link_t *)0;
@@ -5296,7 +5298,7 @@ isc_result_t dhcp_failover_process_bind_update (dhcp_failover_state_t *state,
  * Returns: Truth is the secondary is allowed to get more leases based upon
  * MAC address affinity.  False otherwise.
  */
-static INLINE int
+static inline int
 secondary_not_hoarding(dhcp_failover_state_t *state, struct pool *p) {
 	int total;
 	int hold;
