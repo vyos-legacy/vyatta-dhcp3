@@ -3,7 +3,7 @@
    Lexical scanner for dhcpd config file... */
 
 /*
- * Copyright (c) 2004-2009 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2009,2011 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1995-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -35,14 +35,14 @@
 #include "dhcpd.h"
 #include <ctype.h>
 
-static int get_char PROTO ((struct parse *));
+static int get_char (struct parse *);
 static void unget_char(struct parse *, int);
-static void skip_to_eol PROTO ((struct parse *));
+static void skip_to_eol (struct parse *);
 static enum dhcp_token read_whitespace(int c, struct parse *cfile);
-static enum dhcp_token read_string PROTO ((struct parse *));
-static enum dhcp_token read_number PROTO ((int, struct parse *));
-static enum dhcp_token read_num_or_name PROTO ((int, struct parse *));
-static enum dhcp_token intern PROTO ((char *, enum dhcp_token));
+static enum dhcp_token read_string (struct parse *);
+static enum dhcp_token read_number (int, struct parse *);
+static enum dhcp_token read_num_or_name (int, struct parse *);
+static enum dhcp_token intern (char *, enum dhcp_token);
 
 isc_result_t new_parse (cfile, file, inbuf, buflen, name, eolp)
 	struct parse **cfile;
@@ -968,6 +968,8 @@ intern(char *atom, enum dhcp_token dfv) {
 			return GROUP;
 		if (!strcasecmp (atom + 1, "et-lease-hostnames"))
 			return GET_LEASE_HOSTNAMES;
+		if (!strcasecmp(atom + 1, "ethostbyname"))
+			return GETHOSTBYNAME;
 		break;
 	      case 'h':
 		if (!strcasecmp(atom + 1, "ash"))
@@ -1012,6 +1014,8 @@ intern(char *atom, enum dhcp_token dfv) {
 			return IP6_ADDRESS;
 		if (!strcasecmp (atom + 1, "nitial-interval"))
 			return INITIAL_INTERVAL;
+                if (!strcasecmp (atom + 1, "nitial-delay"))
+                        return INITIAL_DELAY;
 		if (!strcasecmp (atom + 1, "nterface"))
 			return INTERFACE;
 		if (!strcasecmp (atom + 1, "dentifier"))

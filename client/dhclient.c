@@ -47,6 +47,9 @@ const char *path_dhclient_pid = NULL;
 static char path_dhclient_script_array[] = _PATH_DHCLIENT_SCRIPT;
 char *path_dhclient_script = path_dhclient_script_array;
 
+/* False (default) => we write and use a pid file */
+isc_boolean_t no_pid_file = ISC_FALSE;
+
 int dhcp_max_agent_option_packet_length = 0;
 
 int interfaces_requested = 0;
@@ -88,6 +91,12 @@ void run_stateless(int exit_mode);
 static void usage(void);
 
 static isc_result_t write_duid(struct data_string *duid);
+static void add_reject(struct packet *packet);
+
+static int check_domain_name(const char *ptr, size_t len, int dots);
+static int check_domain_name_list(const char *ptr, size_t len, int dots);
+static int check_option_values(struct universe *universe, unsigned int opt,
+			       const char *ptr, size_t len);
 
 int
 main(int argc, char **argv) {
@@ -193,6 +202,8 @@ main(int argc, char **argv) {
 				usage();
 			path_dhclient_pid = argv[i];
 			no_dhclient_pid = 1;
+		} else if (!strcmp(argv[i], "--no-pid")) {
+			no_pid_file = ISC_TRUE;
 		} else if (!strcmp(argv[i], "-cf")) {
 			if (++i == argc)
 				usage();
@@ -367,8 +378,13 @@ main(int argc, char **argv) {
 			log_fatal("%s: %s", path, strerror(errno));
 	}
 
-	/* first kill off any currently running client */
-	if (release_mode || exit_mode) {
+	/*
+	 * See if we should  kill off any currently running client
+	 * we don't try to kill it off if the user told us not
+	 * to write a pid file - we assume they are controlling
+	 * the process in some other fashion.
+	 */
+	if ((release_mode || exit_mode) && (no_pid_file == ISC_FALSE)) {
 		FILE *pidfd;
 		pid_t oldpid;
 		long temp;
@@ -580,13 +596,28 @@ main(int argc, char **argv) {
 					do_release(client);
 				else {
 					client->state = S_INIT;
-					/* Set up a timeout to start the
-					 * initialization process.
-					 */
-					tv.tv_sec = cur_time + random() % 5;
-					tv.tv_usec = 0;
-					add_timeout(&tv, state_reboot,
-						    client, 0, 0);
+
+					if (top_level_config.initial_delay>0)
+					{
+						tv.tv_sec = 0;
+						if (top_level_config.
+						    initial_delay>1)
+							tv.tv_sec = cur_time
+							+ random()
+							% (top_level_config.
+							   initial_delay-1);
+						tv.tv_usec = random()
+							% 1000000;
+						/*
+						 * this gives better
+						 * distribution than just
+						 *whole seconds
+						 */
+						add_timeout(&tv, state_reboot,
+						            client, 0, 0);
+					} else {
+						state_reboot(client);
+					}
 				}
 			}
 		}
@@ -659,16 +690,17 @@ static void usage()
 	log_info(arr);
 	log_info(url);
 
-	log_error("Usage: dhclient %s %s",
+
+	log_fatal("Usage: dhclient "
 #ifdef DHCPv6
-		  "[-4|-6] [-SNTP1dvrx] [-nw] [-p <port>]",
+		  "[-4|-6] [-SNTP1dvrx] [-nw] [-p <port>]\n"
 #else /* DHCPv6 */
-		  "[-1dvrx] [-nw] [-p <port>]",
+		  "[-1dvrx] [-nw] [-p <port>]\n"
 #endif /* DHCPv6 */
-		  "[-s server]");
-	log_error("                [-cf config-file] [-lf lease-file]%s",
-		  "[-pf pid-file] [-e VAR=val]");
-	log_fatal("                [-sf script-file] [interface]");
+		  "                [-s server-addr] [-cf config-file] "
+		  "[-lf lease-file]\n"
+		  "                [-pf pid-file] [--no-pid] [-e VAR=val]\n"
+		  "                [-sf script-file] [interface]");
 }
 
 void run_stateless(int exit_mode)
@@ -1035,21 +1067,34 @@ void dhcpack (packet)
 	} else
 			client -> new -> expiry = 0;
 
-	if (!client -> new -> expiry) {
+	if (client->new->expiry == 0) {
+		struct timeval tv;
+
 		log_error ("no expiry time on offered lease.");
-		/* XXX this is going to be bad - if this _does_
-		   XXX happen, we should probably dynamically
-		   XXX disqualify the DHCP server that gave us the
-		   XXX bad packet from future selections and
-		   XXX then go back into the init state. */
-		state_init (client);
+
+		/* Quench this (broken) server.  Return to INIT to reselect. */
+		add_reject(packet);
+
+		/* 1/2 second delay to restart at INIT. */
+		tv.tv_sec = cur_tv.tv_sec;
+		tv.tv_usec = cur_tv.tv_usec + 500000;
+
+		if (tv.tv_usec >= 1000000) {
+			tv.tv_sec++;
+			tv.tv_usec -= 1000000;
+		}
+
+		add_timeout(&tv, state_init, client, 0, 0);
 		return;
 	}
 
-	/* A number that looks negative here is really just very large,
-	   because the lease expiry offset is unsigned. */
-	if (client -> new -> expiry < 0)
-		client -> new -> expiry = TIME_MAX;
+	/*
+	 * A number that looks negative here is really just very large,
+	 * because the lease expiry offset is unsigned.
+	 */
+	if (client->new->expiry < 0)
+		client->new->expiry = TIME_MAX;
+
 	/* Take the server-provided renewal time if there is one. */
 	oc = lookup_option (&dhcp_universe, client -> new -> options,
 			    DHO_DHCP_RENEWAL_TIME);
@@ -1160,8 +1205,10 @@ void bind_lease (client)
 		return;
 	}
 
-	/* Write out the new lease. */
-	write_client_lease (client, client -> new, 0, 0);
+	/* Write out the new lease if it has been long enough. */
+	if (!client->last_write ||
+	    (cur_time - client->last_write) >= MIN_LEASE_WRITE)
+		write_client_lease(client, client->new, 0, 0);
 
 	/* Replace the old active lease with the new one. */
 	if (client -> active)
@@ -1170,9 +1217,10 @@ void bind_lease (client)
 	client -> new = (struct client_lease *)0;
 
 	/* Set up a timeout to start the renewal process. */
-	tv . tv_sec = client -> active -> renewal;
-	tv . tv_usec = 0;
-	add_timeout (&tv, state_bound, client, 0, 0);
+	tv.tv_sec = client->active->renewal;
+	tv.tv_usec = ((client->active->renewal - cur_tv.tv_sec) > 1) ?
+			random() % 1000000 : cur_tv.tv_usec;
+	add_timeout(&tv, state_bound, client, 0, 0);
 
 	log_info ("bound to %s -- renewal in %ld seconds.",
 	      piaddr (client -> active -> address),
@@ -1312,7 +1360,7 @@ void dhcp (packet)
 	struct packet *packet;
 {
 	struct iaddrmatchlist *ap;
-	void (*handler) PROTO ((struct packet *));
+	void (*handler) (struct packet *);
 	const char *type;
 	char addrbuf[4*16];
 	char maskbuf[4*16];
@@ -1535,15 +1583,15 @@ void dhcpoffer (packet)
 	/* If the selecting interval has expired, go immediately to
 	   state_selecting().  Otherwise, time out into
 	   state_selecting at the select interval. */
-	if (stop_selecting <= 0)
+	if (stop_selecting <= cur_tv.tv_sec)
 		state_selecting (client);
 	else {
-		tv . tv_sec = stop_selecting;
-		tv . tv_usec = 0;
-		add_timeout (&tv, state_selecting, client, 0, 0);
-		cancel_timeout (send_discover, client);
+		tv.tv_sec = stop_selecting;
+		tv.tv_usec = cur_tv.tv_usec;
+		add_timeout(&tv, state_selecting, client, 0, 0);
+		cancel_timeout(send_discover, client);
 	}
-	log_info ("%s", obuf);
+	log_info("%s", obuf);
 }
 
 /* Allocate a client_lease structure and initialize it from the parameters
@@ -1843,9 +1891,15 @@ void send_discover (cpp)
 			      inaddr_any, &sockaddr_broadcast,
 			      (struct hardware *)0);
 
-	tv . tv_sec = cur_time + client -> interval;
-	tv . tv_usec = 0;
-	add_timeout (&tv, send_discover, client, 0, 0);
+	/*
+	 * If we used 0 microseconds here, and there were other clients on the
+	 * same network with a synchronized local clock (ntp), and a similar
+	 * zero-microsecond-scheduler behavior, then we could be participating
+	 * in a sub-second DOS ttck.
+	 */
+	tv.tv_sec = cur_tv.tv_sec + client->interval;
+	tv.tv_usec = client->interval > 1 ? random() % 1000000 : cur_tv.tv_usec;
+	add_timeout(&tv, send_discover, client, 0, 0);
 }
 
 /* state_panic gets called if we haven't received any offers in a preset
@@ -1893,9 +1947,12 @@ void state_panic (cpp)
 				log_info ("bound: renewal in %ld %s.",
 					  (long)(client -> active -> renewal -
 						 cur_time), "seconds");
-				tv . tv_sec = client -> active -> renewal;
-				tv . tv_usec = 0;
-				add_timeout (&tv, state_bound, client, 0, 0);
+				tv.tv_sec = client->active->renewal;
+				tv.tv_usec = ((client->active->renewal -
+						    cur_time) > 1) ?
+						random() % 1000000 :
+						cur_tv.tv_usec;
+				add_timeout(&tv, state_bound, client, 0, 0);
 			    } else {
 				client -> state = S_BOUND;
 				log_info ("bound: immediate renewal.");
@@ -1951,11 +2008,11 @@ void state_panic (cpp)
 		script_write_params (client, "alias_", client -> alias);
 	script_go (client);
 	client -> state = S_INIT;
-	tv . tv_sec = cur_time +
-		     ((client -> config -> retry_interval + 1) / 2 +
-		      (random () % client -> config -> retry_interval));
-	tv . tv_usec = 0;
-	add_timeout (&tv, state_init, client, 0, 0);
+	tv.tv_sec = cur_tv.tv_sec + ((client->config->retry_interval + 1) / 2 +
+		    (random() % client->config->retry_interval));
+	tv.tv_usec = ((tv.tv_sec - cur_tv.tv_sec) > 1) ?
+			random() % 1000000 : cur_tv.tv_usec;
+	add_timeout(&tv, state_init, client, 0, 0);
 	go_daemon ();
 }
 
@@ -2110,9 +2167,10 @@ void send_request (cpp)
 				      from, &destination,
 				      (struct hardware *)0);
 
-	tv . tv_sec = cur_time + client -> interval;
-	tv . tv_usec = 0;
-	add_timeout (&tv, send_request, client, 0, 0);
+	tv.tv_sec = cur_tv.tv_sec + client->interval;
+	tv.tv_usec = ((tv.tv_sec - cur_tv.tv_sec) > 1) ?
+			random() % 1000000 : cur_tv.tv_usec;
+	add_timeout(&tv, send_request, client, 0, 0);
 }
 
 void send_decline (cpp)
@@ -2594,6 +2652,9 @@ void rewrite_client_leases ()
 				write_client6_lease(client,
 						    client->active_lease,
 						    1, 0);
+
+			/* Reset last_write after rewrites. */
+			client->last_write = 0;
 		}
 	}
 
@@ -2612,6 +2673,9 @@ void rewrite_client_leases ()
 				write_client6_lease(client,
 						    client->active_lease,
 						    1, 0);
+
+			/* Reset last_write after rewrites. */
+			client->last_write = 0;
 		}
 	}
 	fflush (leaseFile);
@@ -2955,12 +3019,15 @@ int write_client_lease (client, lease, rewrite, makesure)
 	if (fflush(leaseFile) != 0)
 		errors++;
 
+	client->last_write = cur_time;
+
 	if (!errors && makesure) {
 		if (fsync (fileno (leaseFile)) < 0) {
 			log_info ("write_client_lease: %m");
 			return 0;
 		}
 	}
+
 	return errors ? 0 : 1;
 }
 
@@ -3018,13 +3085,23 @@ void client_option_envadd (struct option_cache *oc,
 		if (data.len) {
 			char name [256];
 			if (dhcp_option_ev_name (name, sizeof name,
-						 oc -> option)) {
-				client_envadd (es -> client, es -> prefix,
-					       name, "%s",
-					       (pretty_print_option
-						(oc -> option,
-						 data.data, data.len,
-						 0, 0)));
+						 oc->option)) {
+				const char *value;
+				value = pretty_print_option(oc->option,
+							    data.data,
+							    data.len, 0, 0);
+				size_t length = strlen(value);
+
+				if (check_option_values(oc->option->universe,
+							oc->option->code,
+							value, length) == 0) {
+					client_envadd(es->client, es->prefix,
+						      name, "%s", value);
+				} else {
+					log_error("suspect value in %s "
+						  "option - discarded",
+						  name);
+				}
 				data_string_forget (&data, MDL);
 			}
 		}
@@ -3102,12 +3179,32 @@ void script_write_params (client, prefix, lease)
 		data_string_forget (&data, MDL);
 	}
 
-	if (lease -> filename)
-		client_envadd (client,
-			       prefix, "filename", "%s", lease -> filename);
-	if (lease -> server_name)
-		client_envadd (client, prefix, "server_name",
-			       "%s", lease -> server_name);
+	if (lease->filename) {
+		if (check_option_values(NULL, DHO_ROOT_PATH,
+					lease->filename,
+					strlen(lease->filename)) == 0) {
+			client_envadd(client, prefix, "filename",
+				      "%s", lease->filename);
+		} else {
+			log_error("suspect value in %s "
+				  "option - discarded",
+				  lease->filename);
+		}
+	}
+
+	if (lease->server_name) {
+		if (check_option_values(NULL, DHO_HOST_NAME,
+					lease->server_name,
+					strlen(lease->server_name)) == 0 ) {
+			client_envadd (client, prefix, "server_name",
+				       "%s", lease->server_name);
+		} else {
+			log_error("suspect value in %s "
+				  "option - discarded",
+				  lease->server_name);
+		}
+	}
+				
 
 	for (i = 0; i < lease -> options -> universe_count; i++) {
 		option_space_foreach ((struct packet *)0, (struct lease *)0,
@@ -3320,6 +3417,11 @@ void write_client_pid_file ()
 	FILE *pf;
 	int pfdesc;
 
+	/* nothing to do if the user doesn't want a pid file */
+	if (no_pid_file == ISC_TRUE) {
+		return;
+	}
+
 	pfdesc = open (path_dhclient_pid, O_CREAT | O_TRUNC | O_WRONLY, 0644);
 
 	if (pfdesc < 0) {
@@ -3328,9 +3430,10 @@ void write_client_pid_file ()
 	}
 
 	pf = fdopen (pfdesc, "w");
-	if (!pf)
+	if (!pf) {
+		close(pfdesc);
 		log_error ("Can't fdopen %s: %m", path_dhclient_pid);
-	else {
+	} else {
 		fprintf (pf, "%ld\n", (long)getpid ());
 		fclose (pf);
 	}
@@ -3486,7 +3589,6 @@ isc_result_t dhclient_interface_startup_hook (struct interface_info *interface)
 {
 	struct interface_info *ip;
 	struct client_state *client;
-	struct timeval tv;
 
 	/* This code needs some rethinking.   It doesn't test against
 	   a signal name, and it just kind of bulls into doing something
@@ -3524,13 +3626,9 @@ isc_result_t dhclient_interface_startup_hook (struct interface_info *interface)
 		if (ip -> flags & INTERFACE_RUNNING)
 			continue;
 		ip -> flags |= INTERFACE_RUNNING;
-		for (client = ip -> client; client; client = client -> next) {
-			client -> state = S_INIT;
-			/* Set up a timeout to start the initialization
-			   process. */
-			tv . tv_sec = cur_time + random () % 5;
-			tv . tv_usec = 0;
-			add_timeout (&tv, state_reboot, client, 0, 0);
+		for (client = ip->client ; client ; client = client->next) {
+			client->state = S_INIT;
+			state_reboot(client);
 		}
 	}
 	return ISC_R_SUCCESS;
@@ -3603,9 +3701,9 @@ isc_result_t dhcp_set_control_state (control_object_state_t oldstate,
 	}
 
 	if (newstate == server_shutdown) {
-		tv . tv_sec = cur_tv . tv_sec + 1;
-		tv . tv_usec = cur_tv . tv_usec;
-		add_timeout (&tv, shutdown_exit, 0, 0, 0);
+		tv.tv_sec = cur_tv.tv_sec;
+		tv.tv_usec = cur_tv.tv_usec + 1;
+		add_timeout(&tv, shutdown_exit, 0, 0, 0);
 	}
 	return ISC_R_SUCCESS;
 }
@@ -3629,8 +3727,8 @@ dhclient_schedule_updates(struct client_state *client, struct iaddr *addr,
 		ustate->address = *addr;
 		ustate->dns_update_timeout = 1;
 
-		tv.tv_sec = cur_time + offset;
-		tv.tv_usec = 0;
+		tv.tv_sec = cur_tv.tv_sec + offset;
+		tv.tv_usec = cur_tv.tv_usec;
 		add_timeout(&tv, client_dns_update_timeout,
 			    ustate, NULL, NULL);
 	} else {
@@ -3661,8 +3759,8 @@ void client_dns_update_timeout (void *cp)
 	if (status == ISC_R_TIMEDOUT) {
 		if (ustate->dns_update_timeout < 3600)
 			ustate->dns_update_timeout *= 10;
-		tv.tv_sec = cur_time + ustate->dns_update_timeout;
-		tv.tv_usec = 0;
+		tv.tv_sec = cur_tv.tv_sec + ustate->dns_update_timeout;
+		tv.tv_usec = cur_tv.tv_usec;
 		add_timeout(&tv, client_dns_update_timeout,
 			    ustate, NULL, NULL);
 	} else
@@ -3829,4 +3927,159 @@ dhcpv4_client_assignments(void)
 		remote_port = local_port;
 	} else
 		remote_port = htons (ntohs (local_port) - 1);   /* XXX */
+}
+
+/*
+ * The following routines are used to check that certain
+ * strings are reasonable before we pass them to the scripts.
+ * This avoids some problems with scripts treating the strings
+ * as commands - see ticket 23722
+ * The domain checking code should be done as part of assembling
+ * the string but we are doing it here for now due to time
+ * constraints.
+ */
+
+static int check_domain_name(const char *ptr, size_t len, int dots)
+{
+	const char *p;
+
+	/* not empty or complete length not over 255 characters   */
+	if ((len == 0) || (len > 256))
+		return(-1);
+
+	/* consists of [[:alnum:]-]+ labels separated by [.]      */
+	/* a [_] is against RFC but seems to be "widely used"...  */
+	for (p=ptr; (*p != 0) && (len-- > 0); p++) {
+		if ((*p == '-') || (*p == '_')) {
+			/* not allowed at begin or end of a label */
+			if (((p - ptr) == 0) || (len == 0) || (p[1] == '.'))
+				return(-1);
+		} else if (*p == '.') {
+			/* each label has to be 1-63 characters;
+			   we allow [.] at the end ('foo.bar.')   */
+			size_t d = p - ptr;
+			if ((d <= 0) || (d >= 64))
+				return(-1);
+			ptr = p + 1; /* jump to the next label    */
+			if ((dots > 0) && (len > 0))
+				dots--;
+		} else if (isalnum((unsigned char)*p) == 0) {
+			/* also numbers at the begin are fine     */
+			return(-1);
+		}
+	}
+	return(dots ? -1 : 0);
+}
+
+static int check_domain_name_list(const char *ptr, size_t len, int dots)
+{
+	const char *p;
+	int ret = -1; /* at least one needed */
+
+	if ((ptr == NULL) || (len == 0))
+		return(-1);
+
+	for (p=ptr; (*p != 0) && (len > 0); p++, len--) {
+		if (*p != ' ')
+			continue;
+		if (p > ptr) {
+			if (check_domain_name(ptr, p - ptr, dots) != 0)
+				return(-1);
+			ret = 0;
+		}
+		ptr = p + 1;
+	}
+	if (p > ptr)
+		return(check_domain_name(ptr, p - ptr, dots));
+	else
+		return(ret);
+}
+
+static int check_option_values(struct universe *universe,
+			       unsigned int opt,
+			       const char *ptr,
+			       size_t len)
+{
+	if (ptr == NULL)
+		return(-1);
+
+	/* just reject options we want to protect, will be escaped anyway */
+	if ((universe == NULL) || (universe == &dhcp_universe)) {
+		switch(opt) {
+		      case DHO_DOMAIN_NAME:
+#ifdef ACCEPT_LIST_IN_DOMAIN_NAME
+			      return check_domain_name_list(ptr, len, 0);
+#else
+			      return check_domain_name(ptr, len, 0);
+#endif
+		      case DHO_HOST_NAME:
+		      case DHO_NIS_DOMAIN:
+		      case DHO_NETBIOS_SCOPE:
+			return check_domain_name(ptr, len, 0);
+			break;
+		      case DHO_DOMAIN_SEARCH:
+			return check_domain_name_list(ptr, len, 0);
+			break;
+		      case DHO_ROOT_PATH:
+			if (len == 0)
+				return(-1);
+			for (; (*ptr != 0) && (len-- > 0); ptr++) {
+				if(!(isalnum((unsigned char)*ptr) ||
+				     *ptr == '#'  || *ptr == '%' ||
+				     *ptr == '+'  || *ptr == '-' ||
+				     *ptr == '_'  || *ptr == ':' ||
+				     *ptr == '.'  || *ptr == ',' ||
+				     *ptr == '@'  || *ptr == '~' ||
+				     *ptr == '\\' || *ptr == '/' ||
+				     *ptr == '['  || *ptr == ']' ||
+				     *ptr == '='  || *ptr == ' '))
+					return(-1);
+			}
+			return(0);
+			break;
+		}
+	}
+
+#ifdef DHCPv6
+	if (universe == &dhcpv6_universe) {
+		switch(opt) {
+		      case D6O_SIP_SERVERS_DNS:
+		      case D6O_DOMAIN_SEARCH:
+		      case D6O_NIS_DOMAIN_NAME:
+		      case D6O_NISP_DOMAIN_NAME:
+			return check_domain_name_list(ptr, len, 0);
+			break;
+		}
+	}
+#endif
+
+	return(0);
+}
+
+static void
+add_reject(struct packet *packet) {
+	struct iaddrmatchlist *list;
+	
+	list = dmalloc(sizeof(struct iaddrmatchlist), MDL);
+	if (!list)
+		log_fatal ("no memory for reject list!");
+
+	/*
+	 * client_addr is misleading - it is set to source address in common
+	 * code.
+	 */
+	list->match.addr = packet->client_addr;
+	/* Set mask to indicate host address. */
+	list->match.mask.len = list->match.addr.len;
+	memset(list->match.mask.iabuf, 0xff, sizeof(list->match.mask.iabuf));
+
+	/* Append to reject list for the source interface. */
+	list->next = packet->interface->client->config->reject_list;
+	packet->interface->client->config->reject_list = list;
+
+	/*
+	 * We should inform user that we won't be accepting this server
+	 * anymore.
+	 */
+	log_info("Server added to list of rejected servers.");
 }
