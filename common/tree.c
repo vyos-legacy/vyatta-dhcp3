@@ -3,6 +3,7 @@
    Routines for manipulating parse trees... */
 
 /*
+ * Copyright (c) 2011 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 2004-2007,2009 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1995-2003 by Internet Software Consortium
  *
@@ -43,8 +44,8 @@
 
 struct binding_scope *global_scope;
 
-static int do_host_lookup PROTO ((struct data_string *,
-				  struct dns_host_entry *));
+static int do_host_lookup (struct data_string *,
+			   struct dns_host_entry *);
 
 #ifdef NSUPDATE
 struct __res_state resolver_state;
@@ -3308,7 +3309,7 @@ int is_compound_expression (expr)
 		expr -> op == expr_dns_transaction);
 }
 
-static int op_val PROTO ((enum expr_op));
+static int op_val (enum expr_op);
 
 static int op_val (op)
 	enum expr_op op;
@@ -3986,6 +3987,27 @@ int write_expression (file, expr, col, indent, firstp)
 		col = token_print_indent (file, col, indent, "", "",
 					  expr -> data.variable);
 		col = token_print_indent (file, col, indent, "", "", ")");
+		break;
+
+	      case expr_funcall:
+		col = token_print_indent(file, indent, indent, "", "",
+					 expr->data.funcall.name);
+		col = token_print_indent(file, col, indent, " ", "", "(");
+
+		firstp = 1;
+		e = expr->data.funcall.arglist;
+		while (e != NULL) {
+			if (!firstp)
+				col = token_print_indent(file, col, indent,
+							 "", " ", ",");
+
+			col = write_expression(file, e->data.arg.val, col,
+					       indent, firstp);
+			firstp = 0;
+			e = e->data.arg.next;
+		}
+
+		col = token_print_indent(file, col, indent, "", "", ")");
 		break;
 
 	      default:

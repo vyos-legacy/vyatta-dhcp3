@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006-2010 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (C) 2006-2011 by Internet Systems Consortium, Inc. ("ISC")
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -3697,7 +3697,9 @@ reply_process_try_prefix(struct reply_state *reply,
 			continue;
 		status = try_client_v6_prefix(&reply->lease, pool,
 					      &data_pref);
-		if (status == ISC_R_SUCCESS)
+                /* If we found it in this pool (either in use or available), 
+                   there is no need to look further. */
+		if ( (status == ISC_R_SUCCESS) || (status == ISC_R_ADDRINUSE) )
 			break;
 	}
 
@@ -5861,8 +5863,18 @@ dhcpv6(struct packet *packet) {
 		} else {
 			to_addr.sin6_port = remote_port;
 		}
-/* For testing, we reply to the sending port, so we don't need a root client */
+
+#if defined (REPLY_TO_SOURCE_PORT)
+		/*
+		 * This appears to have been included for testing so we would
+		 * not need a root client, but was accidently left in the
+		 * final code.  We continue to include it in case
+		 * some users have come to rely upon it, but leave
+		 * it off by default as it's a bad idea.
+		 */
 		to_addr.sin6_port = packet->client_port;
+#endif
+
 		memcpy(&to_addr.sin6_addr, packet->client_addr.iabuf, 
 		       sizeof(to_addr.sin6_addr));
 

@@ -3,6 +3,7 @@
    Tokens for config file lexer and parser. */
 
 /*
+ * Copyright (c) 2011 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 2004,2007-2009 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1996-2003 by Internet Software Consortium
  *
@@ -46,12 +47,14 @@ enum dhcp_token {
 	TILDE = '~',
 	BANG = '!',
 	PERCENT = '%',
- 	PLUS = '+',
+	PLUS = '+',
 	MINUS = '-',
 	ASTERISK = '*',
 	AMPERSAND = '&',
 	PIPE = '|',
 	CARET = '^',
+	ENDOFLINE = '\n',
+	QUESTIONMARK = '?',
 
 	HOST = 256,
 	FIRST_TOKEN = HOST,
@@ -353,7 +356,9 @@ enum dhcp_token {
 	TEMPORARY = 656,
 	PREFIX6 = 657,
 	FIXED_PREFIX6 = 658,
-	CONFLICT_DONE = 660
+	CONFLICT_DONE = 660,
+	INITIAL_DELAY = 664,
+	GETHOSTBYNAME = 665
 };
 
 #define is_identifier(x)	((x) >= FIRST_TOKEN &&	\

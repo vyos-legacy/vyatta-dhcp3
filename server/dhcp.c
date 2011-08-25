@@ -3,7 +3,7 @@
    DHCP Protocol engine. */
 
 /*
- * Copyright (c) 2004-2010 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2011 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1995-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -1541,6 +1541,7 @@ void ack_lease (packet, lease, offer, when, msg, ms_nulltp, hp)
 	 * by the user into the new state, not just give up.
 	 */
 	if (!packet->agent_options_stashed &&
+	    (packet->options != NULL) &&
 	    packet->options->universe_count > agent_universe.index &&
 	    packet->options->universes[agent_universe.index] != NULL &&
 	    (state->options->universe_count <= agent_universe.index ||
@@ -2339,6 +2340,20 @@ void ack_lease (packet, lease, offer, when, msg, ms_nulltp, hp)
 		option_chain_head_reference (&lt -> agent_options,
 					     lease -> agent_options, MDL);
 
+	/* Save the vendor-class-identifier for DHCPLEASEQUERY. */
+	oc = lookup_option(&dhcp_universe, packet->options,
+			   DHO_VENDOR_CLASS_IDENTIFIER);
+	if (oc != NULL &&
+	    evaluate_option_cache(&d1, packet, NULL, NULL, packet->options,
+				  NULL, &lease->scope, oc, MDL)) {
+		if (d1.len != 0) {
+			bind_ds_value(&lease->scope, "vendor-class-identifier",
+				      &d1);
+		}
+
+		data_string_forget(&d1, MDL);
+	}
+
 	/* If we got relay agent information options from the packet, then
 	 * cache them for renewal in case the relay agent can't supply them
 	 * when the client unicasts.  The options may be from an addressed
@@ -2346,6 +2361,7 @@ void ack_lease (packet, lease, offer, when, msg, ms_nulltp, hp)
 	 * giaddr.
 	 */
 	if (!packet->agent_options_stashed &&
+	    (packet->options != NULL) &&
 	    packet->options->universe_count > agent_universe.index &&
 	    packet->options->universes[agent_universe.index] != NULL) {
 	    oc = lookup_option (&server_universe, state -> options,
@@ -2847,8 +2863,14 @@ void ack_lease (packet, lease, offer, when, msg, ms_nulltp, hp)
 		log_debug ("Ping timeout: %ld", (long)ping_timeout);
 #endif
 
-		tv . tv_sec = cur_time + ping_timeout;
-		tv . tv_usec = 0;
+		/*
+		 * Set a timeout for 'ping-timeout' seconds from NOW, including
+		 * current microseconds.  As ping-timeout defaults to 1, the
+		 * exclusion of current microseconds causes a value somewhere
+		 * /between/ zero and one.
+		 */
+		tv.tv_sec = cur_tv.tv_sec + ping_timeout;
+		tv.tv_usec = cur_tv.tv_usec;
 		add_timeout (&tv, lease_ping_timeout, lease,
 			     (tvref_t)lease_reference,
 			     (tvunref_t)lease_dereference);

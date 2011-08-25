@@ -373,13 +373,6 @@ parse_ip6_addr(struct parse *cfile, struct iaddr *addr) {
 	char v6[sizeof("ffff:ffff:ffff:ffff:ffff:ffff:255.255.255.255")];
 	int v6_len;
 
-        if (local_family != AF_INET6) {
-                parse_warn(cfile, "IPv6 addresses are only available "
-				  "in DHCPv6 mode.");
-                skip_to_semi(cfile);
-                return 0;
-        }
-
 	/*
 	 * First token is non-raw. This way we eat any whitespace before 
 	 * our IPv6 address begins, like one would expect.
@@ -3331,6 +3324,33 @@ int parse_boolean_expression (expr, cfile, lose)
 	return 1;
 }
 
+/* boolean :== ON SEMI | OFF SEMI | TRUE SEMI | FALSE SEMI */
+
+int parse_boolean (cfile)
+	struct parse *cfile;
+{
+	enum dhcp_token token;
+	const char *val;
+	int rv;
+
+	token = next_token (&val, (unsigned *)0, cfile);
+	if (!strcasecmp (val, "true")
+	    || !strcasecmp (val, "on"))
+		rv = 1;
+	else if (!strcasecmp (val, "false")
+		 || !strcasecmp (val, "off"))
+		rv = 0;
+	else {
+		parse_warn (cfile,
+			    "boolean value (true/false/on/off) expected");
+		skip_to_semi (cfile);
+		return 0;
+	}
+	parse_semi (cfile);
+	return rv;
+}
+
+
 /*
  * data_expression :== SUBSTRING LPAREN data-expression COMMA
  *					numeric-expression COMMA
@@ -4534,6 +4554,31 @@ int parse_non_binary (expr, cfile, lose, context)
 			goto norparen;
 		break;
 
+	      case GETHOSTBYNAME:
+		token = next_token(&val, NULL, cfile);
+
+		token = next_token(NULL, NULL, cfile);
+		if (token != LPAREN)
+			goto nolparen;
+
+		/* The argument is a quoted string. */
+		token = next_token(&val, NULL, cfile);
+		if (token != STRING) {
+			parse_warn(cfile, "Expecting quoted literal: "
+					  "\"foo.example.com\"");
+			skip_to_semi(cfile);
+			*lose = 1;
+			return 0;
+		}
+		if (!make_host_lookup(expr, val))
+			log_fatal("Error creating gethostbyname() internal "
+				  "record. (%s:%d)", MDL);
+
+		token = next_token(NULL, NULL, cfile);
+		if (token != RPAREN)
+			goto norparen;
+		break;
+
 		/* Not a valid start to an expression... */
 	      default:
 		if (token != NAME && token != NUMBER_OR_NAME)
@@ -4953,8 +4998,28 @@ struct option *option;
 		do {
 			if ((*fmt == 'A') || (*fmt == 'a'))
 				break;
-			if (*fmt == 'o')
+			if (*fmt == 'o') {
+				/* consume the optional flag */
+				fmt++;
 				continue;
+			}
+
+			if (fmt[1] == 'o') {
+				/*
+				 * A value for the current format is
+				 * optional - check to see if the next
+				 * token is a semi-colon if so we don't
+				 * need to parse it and doing so would
+				 * consume the semi-colon which our
+				 * caller is expecting to parse
+				 */
+				token = peek_token(&val, (unsigned *)0,
+						   cfile);
+				if (token == SEMI) {
+					fmt++;
+					continue;
+				}
+			}
 
 			tmp = *expr;
 			*expr = NULL;
