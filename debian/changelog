@@ -1,3 +1,10 @@
+vyatta-dhcp3 (4.1.2+vyatta8) unstable; urgency=low
+
+  * ISC DHCP version 4.1-ESV-R6
+  * Ignore .deps directories
+
+ -- James Davidson <james.davidson@vyatta.com>  Mon, 30 Jul 2012 14:29:37 -0700
+
 vyatta-dhcp3 (4.1.2+vyatta7) unstable; urgency=low
 
   * new branch
