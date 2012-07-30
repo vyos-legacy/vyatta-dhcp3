@@ -22,7 +22,7 @@
  */
 
 /*
- *	$Id: res_update.h,v 1.4.786.2 2009-07-24 22:04:52 sar Exp $
+ *	$Id: res_update.h,v 1.4.786.2 2009/07/24 22:04:52 sar Exp $
  */
 
 #ifndef __RES_UPDATE_H

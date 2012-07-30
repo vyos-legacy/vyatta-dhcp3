@@ -15,7 +15,7 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
-/* $Id: heap.c,v 1.2 2007-05-08 23:05:20 dhankins Exp $ */
+/* $Id: heap.c,v 1.2 2007/05/08 23:05:20 dhankins Exp $ */
 
 /*
  * This heap implementation is taken from the BIND 9 code. It has been
