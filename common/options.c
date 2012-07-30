@@ -3,7 +3,7 @@
    DHCP options parsing and reassembly. */
 
 /*
- * Copyright (c) 2004-2011 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2012 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1995-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -1677,6 +1677,8 @@ const char *pretty_print_option (option, data, len, emit_commas, emit_quotes)
 	const unsigned char *dp = data;
 	char comma;
 	unsigned long tval;
+	isc_boolean_t a_array = ISC_FALSE;
+	int len_used;
 
 	if (emit_commas)
 		comma = ',';
@@ -1701,6 +1703,8 @@ const char *pretty_print_option (option, data, len, emit_commas, emit_quotes)
 		fmtbuf [l] = option -> format [i];
 		switch (option -> format [i]) {
 		      case 'a':
+			a_array = ISC_TRUE;
+			/* Fall through */
 		      case 'A':
 			--numelem;
 			fmtbuf [l] = 0;
@@ -1729,6 +1733,8 @@ const char *pretty_print_option (option, data, len, emit_commas, emit_quotes)
 				hunksize++;
 				comma = ':';
 				numhunk = 0;
+				a_array = ISC_TRUE;
+				hunkinc = 1;
 			}
 			fmtbuf [l + 1] = 0;
 			break;
@@ -1822,13 +1828,34 @@ const char *pretty_print_option (option, data, len, emit_commas, emit_quotes)
 		      len - hunksize);
 
 	/* If this is an array, compute its size. */
-	if (!numhunk)
-		numhunk = len / hunksize;
-	/* See if we got an exact number of hunks. */
-	if (numhunk > 0 && numhunk * hunksize < len)
-		log_error ("%s: %d extra bytes at end of array\n",
-		      option -> name,
-		      len - numhunk * hunksize);
+	if (numhunk == 0) {
+		if (a_array == ISC_TRUE) {
+			/*
+			 * It is an 'a' type array - we repeat the
+			 * last format type.  A binary string for 'X'
+			 * is also like this.  hunkinc is the size
+			 * of the last format type and we add 1 to
+			 * cover the entire first record.
+			 */
+			numhunk = ((len - hunksize) / hunkinc) + 1;
+			len_used = hunksize + ((numhunk - 1) * hunkinc);
+		} else {
+			/*
+			 * It is an 'A' type array - we repeat the
+			 * entire record
+			 */
+			numhunk = len / hunksize;
+			len_used = numhunk * hunksize;
+		}
+
+		/* See if we got an exact number of hunks. */
+		if (len_used < len) {
+			log_error ("%s: %d extra bytes at end of array\n",
+				   option -> name,
+				   len - len_used);
+		}
+	}
+
 
 	/* A one-hunk array prints the same as a single hunk. */
 	if (numhunk < 0)
@@ -1836,7 +1863,24 @@ const char *pretty_print_option (option, data, len, emit_commas, emit_quotes)
 
 	/* Cycle through the array (or hunk) printing the data. */
 	for (i = 0; i < numhunk; i++) {
-		for (j = 0; j < numelem; j++) {
+		if ((a_array == ISC_TRUE) && (i != 0) && (numelem > 0)) {
+			/*
+			 * For 'a' type of arrays we repeat
+			 * only the last format character
+			 * We should never hit the case of numelem == 0
+			 * but let's include the check to be safe.
+			 */
+			j = numelem - 1;
+		} else {
+			/*
+			 * for other types of arrays or the first
+			 * time through for 'a' types, we go through
+			 * the entire set of format characters.
+			 */
+			j = 0;
+		}
+
+		for (; j < numelem; j++) {
 			switch (fmtbuf [j]) {
 			      case 't':
 				/* endbuf-1 leaves room for NULL. */
@@ -2353,9 +2397,11 @@ prepare_option_buffer(struct universe *universe, struct buffer *bp,
 
 	/* And let go of our references. */
       cleanup:
+	if (lbp != NULL)
+		buffer_dereference(&lbp, MDL);
 	option_dereference(&option, MDL);
 
-	return 1;
+	return status;
 }
 
 static void
@@ -3748,11 +3794,13 @@ void do_packet (interface, packet, len, from_port, from, hfrom)
 			data_string_forget (&dp, MDL);
 		}
 	}
-		
-	if (decoded_packet -> packet_type)
-		dhcp (decoded_packet);
-	else
-		bootp (decoded_packet);
+
+	if (validate_packet(decoded_packet) != 0) {
+		if (decoded_packet->packet_type)
+			dhcp(decoded_packet);
+		else
+			bootp(decoded_packet);
+	}
 
 	/* If the caller kept the packet, they'll have upped the refcnt. */
 	packet_dereference (&decoded_packet, MDL);
@@ -3839,6 +3887,7 @@ do_packet6(struct interface_info *interface, const char *packet,
 	msg_type = packet[0];
 	if ((msg_type == DHCPV6_RELAY_FORW) || 
 	    (msg_type == DHCPV6_RELAY_REPL)) {
+		int relaylen = (int)(offsetof(struct dhcpv6_relay_packet, options));
 		relay = (const struct dhcpv6_relay_packet *)packet;
 		decoded_packet->dhcpv6_msg_type = relay->msg_type;
 
@@ -3850,7 +3899,7 @@ do_packet6(struct interface_info *interface, const char *packet,
 		       relay->peer_address, sizeof(relay->peer_address));
 
 		if (!parse_option_buffer(decoded_packet->options, 
-					 relay->options, len-sizeof(*relay), 
+					 relay->options, len - relaylen, 
 					 &dhcpv6_universe)) {
 			/* no logging here, as parse_option_buffer() logs all
 			   cases where it fails */
@@ -3858,6 +3907,7 @@ do_packet6(struct interface_info *interface, const char *packet,
 			return;
 		}
 	} else {
+		int msglen = (int)(offsetof(struct dhcpv6_packet, options));
 		msg = (const struct dhcpv6_packet *)packet;
 		decoded_packet->dhcpv6_msg_type = msg->msg_type;
 
@@ -3867,7 +3917,7 @@ do_packet6(struct interface_info *interface, const char *packet,
 		       sizeof(decoded_packet->dhcpv6_transaction_id));
 
 		if (!parse_option_buffer(decoded_packet->options, 
-					 msg->options, len-sizeof(*msg), 
+					 msg->options, len - msglen, 
 					 &dhcpv6_universe)) {
 			/* no logging here, as parse_option_buffer() logs all
 			   cases where it fails */
@@ -4070,4 +4120,47 @@ add_option(struct option_state *options,
 	return 1;
 }
 
+/**
+ *  Checks if received BOOTP/DHCPv4 packet is sane
+ *
+ * @param packet received, decoded packet
+ *
+ * @return 1 if packet is sane, 0 if it is not
+ */
+int validate_packet(struct packet *packet)
+{
+	struct option_cache *oc = NULL;
 
+	oc = lookup_option (&dhcp_universe, packet->options,
+			    DHO_DHCP_CLIENT_IDENTIFIER);
+	if (oc) {
+		/* Let's check if client-identifier is sane */
+		if (oc->data.len == 0) {
+			log_debug("Dropped DHCPv4 packet with zero-length client-id");
+			return (0);
+
+		} else if (oc->data.len == 1) {
+			/*
+			 * RFC2132, section 9.14 states that minimum length of client-id
+			 * is 2.  We will allow single-character client-ids for now (for
+			 * backwards compatibility), but warn the user that support for
+			 * this is against the standard.
+			 */
+			log_debug("Accepted DHCPv4 packet with one-character client-id - "
+				"a future version of ISC DHCP will reject this");
+		}
+	} else {
+		/* 
+		 * If hlen is 0 we don't have any identifier, we warn the user
+		 * but continue processing the packet as we can.
+		 */
+		if (packet->raw->hlen == 0) {
+			log_debug("Received DHCPv4 packet without client-id"
+				  " option and empty hlen field.");
+		}
+	}
+
+	/* @todo: Add checks for other received options */
+
+	return (1);
+}

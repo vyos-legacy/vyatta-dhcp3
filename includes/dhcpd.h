@@ -3,7 +3,7 @@
    Definitions for dhcpd... */
 
 /*
- * Copyright (c) 2004-2011 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2012 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1996-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -421,7 +421,7 @@ struct packet {
 
 struct hardware {
 	u_int8_t hlen;
-	u_int8_t hbuf [17];
+	u_int8_t hbuf[21];
 };
 
 typedef enum {
@@ -1651,6 +1651,8 @@ void do_packet6(struct interface_info *, const char *,
 		int, int, const struct iaddr *, isc_boolean_t);
 int packet6_len_okay(const char *, int);
 
+int validate_packet(struct packet *);
+
 int add_option(struct option_state *options,
 	       unsigned int option_num,
 	       void *data,
@@ -2572,6 +2574,7 @@ int write_billing_class (struct class *);
 void commit_leases_timeout (void *);
 void commit_leases_readerdry(void *);
 int commit_leases (void);
+int commit_leases_timed (void);
 void db_startup (int);
 int new_lease_file (void);
 int group_writer (struct group_object *);
@@ -3286,9 +3289,13 @@ isc_result_t release_lease6(struct ipv6_pool *pool, struct iasubopt *lease);
 isc_result_t decline_lease6(struct ipv6_pool *pool, struct iasubopt *lease);
 isc_boolean_t lease6_exists(const struct ipv6_pool *pool,
 			    const struct in6_addr *addr);
+isc_boolean_t lease6_usable(struct iasubopt *lease);
+isc_result_t cleanup_lease6(ia_hash_t *ia_table,
+			    struct ipv6_pool *pool,
+			    struct iasubopt *lease,
+			    struct ia_xx *ia);
 isc_result_t mark_lease_unavailble(struct ipv6_pool *pool,
 				   const struct in6_addr *addr);
-
 isc_result_t create_prefix6(struct ipv6_pool *pool,
 			    struct iasubopt **pref,
 			    unsigned int *attempts,
