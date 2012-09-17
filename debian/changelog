@@ -1,3 +1,10 @@
+vyatta-dhcp3 (4.1.2+vyatta9) unstable; urgency=low
+
+  * ISC DHCP version 4.1-ESV-R7
+  * Update .gitignore
+
+ -- James Davidson <james.davidson@vyatta.com>  Mon, 17 Sep 2012 11:35:52 -0700
+
 vyatta-dhcp3 (4.1.2+vyatta8) unstable; urgency=low
 
   * ISC DHCP version 4.1-ESV-R6
