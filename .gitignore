@@ -17,6 +17,7 @@ Makefile
 client/dhclient
 config.log
 config.status
+config.report
 dhcpctl/cltest
 dhcpctl/omshell
 includes/config.h
@@ -41,3 +42,4 @@ debian/vyatta-dhcp3-common.substvars
 debian/vyatta-dhcp3-relay.substvars
 debian/vyatta-dhcp3-server.substvars
 
+doc/devel/doxyfile
