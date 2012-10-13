@@ -1,3 +1,9 @@
+vyatta-dhcp3 (4.1.2+vyatta9+pacifica1) unstable; urgency=low
+
+  * new branch
+
+ -- John Southworth <john.southworth@vyatta.com>  Fri, 12 Oct 2012 19:35:47 -0700
+
 vyatta-dhcp3 (4.1.2+vyatta9) unstable; urgency=low
 
   * ISC DHCP version 4.1-ESV-R7
