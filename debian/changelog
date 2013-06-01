@@ -1,3 +1,9 @@
+vyatta-dhcp3 (4.1.2+vyatta9+daisy2) unstable; urgency=low
+
+  * allow optional dependency on vyatta-unicast
+
+ -- Robert Bays <robert@vyatta.com>  Sat, 01 Jun 2013 16:53:06 -0700
+
 vyatta-dhcp3 (4.1.2+vyatta9+daisy1) unstable; urgency=low
 
   * new branch
