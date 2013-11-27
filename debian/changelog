@@ -1,4 +1,10 @@
-vyatta-dhcp3 (4.1.2+vyatta9+hydrogen1) unstable; urgency=low
+vyatta-dhcp3 (4.1.8+hydrogen2) unstable; urgency=low
+
+  * ISC DHCP version 4.1-ESV-R8
+
+ -- Mihail Vasiliev <mickvav@gmail.com>  Wed, 27 Nov 2013 17:08:06 +0400
+
+vyatta-dhcp3 (4.1.2+vyatta11) unstable; urgency=low
 
   * New branch
 
