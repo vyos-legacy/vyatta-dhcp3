@@ -74,7 +74,7 @@ void log_fatal (const char * fmt, ... )
 	  IGNORE_RET (write (STDERR_FILENO, "\n", 1));
   }
 
-#if 0
+#if !defined (NOMINUM)
   log_error ("%s", "");
   log_error ("If you did not get this software from ftp.isc.org, please");
   log_error ("get the latest from ftp.isc.org and install that before");

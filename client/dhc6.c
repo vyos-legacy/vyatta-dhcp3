@@ -109,6 +109,7 @@ static void make_client6_options(struct client_state *client,
 static void script_write_params6(struct client_state *client,
 				 const char *prefix,
 				 struct option_state *options);
+static void script_write_requested6(struct client_state *client);
 static isc_boolean_t active_prefix(struct client_state *client);
 
 static int check_timing6(struct client_state *client, u_int8_t msg_type, 
@@ -211,8 +212,10 @@ dhcpv6_client_assignments(void)
 	memset(&DHCPv6DestAddr, 0, sizeof(DHCPv6DestAddr));
 	DHCPv6DestAddr.sin6_family = AF_INET6;
 	DHCPv6DestAddr.sin6_port = remote_port;
-	inet_pton(AF_INET6, All_DHCP_Relay_Agents_and_Servers,
-		  &DHCPv6DestAddr.sin6_addr);
+	if (inet_pton(AF_INET6, All_DHCP_Relay_Agents_and_Servers,
+		      &DHCPv6DestAddr.sin6_addr) <= 0) {
+		log_fatal("Bad address %s", All_DHCP_Relay_Agents_and_Servers);
+	}
 
 	code = D6O_CLIENTID;
 	if (!option_code_hash_lookup(&clientid_option,
@@ -653,7 +656,8 @@ dhc6_leaseify(struct packet *packet)
 	 * not sure based on what additional keys now).
 	 */
 	oc = lookup_option(&dhcpv6_universe, packet->options, D6O_SERVERID);
-	if (!evaluate_option_cache(&lease->server_id, packet, NULL, NULL,
+	if ((oc == NULL) ||
+	    !evaluate_option_cache(&lease->server_id, packet, NULL, NULL,
 				   lease->options, NULL, &global_scope,
 				   oc, MDL) ||
 	    lease->server_id.len == 0) {
@@ -4329,6 +4333,7 @@ start_bound(struct client_state *client)
 				dhc6_marshall_values("old_", client, old,
 						     oldia, oldaddr);
 			dhc6_marshall_values("new_", client, lease, ia, addr);
+			script_write_requested6(client);
 
 			script_go(client);
 		}
@@ -4345,6 +4350,7 @@ start_bound(struct client_state *client)
 
 			dhc6_marshall_values("new_", client, lease, ia,
 					     NULL);
+			script_write_requested6(client);
 
 			script_go(client);
 		}
@@ -4361,6 +4367,7 @@ start_bound(struct client_state *client)
 						old->bindings->addrs : NULL);
 
 		dhc6_marshall_values("new_", client, lease, NULL, NULL);
+		script_write_requested6(client);
 
 		script_go(client);
 	}
@@ -4639,6 +4646,7 @@ do_depref(void *input)
 				script_init(client, "DEPREF6", NULL);
 				dhc6_marshall_values("cur_", client, lease,
 						     ia, addr);
+				script_write_requested6(client);
 				script_go(client);
 
 				addr->flags |= DHC6_ADDR_DEPREFFED;
@@ -4690,6 +4698,7 @@ do_expire(void *input)
 				script_init(client, "EXPIRE6", NULL);
 				dhc6_marshall_values("old_", client, lease,
 						     ia, addr);
+				script_write_requested6(client);
 				script_go(client);
 
 				addr->flags |= DHC6_ADDR_EXPIRED;
@@ -4752,6 +4761,7 @@ unconfigure6(struct client_state *client, const char *reason)
 		if (client->active_lease != NULL)
 			script_write_params6(client, "old_",
 					     client->active_lease->options);
+		script_write_requested6(client);
 		script_go(client);
 		return;
 	}
@@ -4767,6 +4777,7 @@ unconfigure6(struct client_state *client, const char *reason)
 			script_init(client, reason, NULL);
 			dhc6_marshall_values("old_", client,
 					     client->active_lease, ia, addr);
+			script_write_requested6(client);
 			script_go(client);
 
 			if ((ia->ia_type == D6O_IA_NA) &&
@@ -4858,6 +4869,7 @@ start_informed(struct client_state *client)
 		script_write_params6(client, "old_",
 				     client->old_lease->options);
 	script_write_params6(client, "new_", client->active_lease->options);
+	script_write_requested6(client);
 	script_go(client);
 
 	go_daemon();
@@ -5081,6 +5093,32 @@ script_write_params6(struct client_state *client, const char *prefix,
 		option_space_foreach(NULL, NULL, client, NULL, options,
 				     &global_scope, universes[i], &es,
 				     client_option_envadd);
+	}
+}
+
+/*
+ * A clone of the DHCPv4 routine.
+ * Write out the environment variables for the objects that the
+ * client requested.  If the object was requested the variable will be:
+ * requested_<option_name>=1
+ * If it wasn't requested there won't be a variable.
+ */
+static void script_write_requested6(client)
+	struct client_state *client;
+{
+	int i;
+	struct option **req;
+	char name[256];
+	req = client->config->requested_options;
+
+	if (req == NULL)
+		return;
+
+	for (i = 0 ; req[i] != NULL ; i++) {
+		if ((req[i]->universe == &dhcpv6_universe) &&
+		    dhcp_option_ev_name (name, sizeof(name), req[i])) {
+			client_envadd(client, "requested_", name, "%d", 1);
+		}
 	}
 }
 

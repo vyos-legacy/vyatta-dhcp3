@@ -1969,7 +1969,11 @@ unsigned cons_agent_information_options (struct option_state *,
 					 unsigned, unsigned);
 void get_server_source_address(struct in_addr *from,
 			       struct option_state *options,
+			       struct option_state *out_options,
 			       struct packet *packet);
+void setup_server_source_address(struct in_addr *from,
+				 struct option_state *options,
+				 struct packet *packet);
 
 /* dhcpleasequery.c */
 void dhcpleasequery (struct packet *, int);
@@ -2527,6 +2531,7 @@ void client_option_envadd (struct option_cache *, struct packet *,
 			   struct binding_scope **, struct universe *, void *);
 void script_write_params (struct client_state *, const char *,
 			  struct client_lease *);
+void script_write_requested (struct client_state *);
 int script_go (struct client_state *);
 void client_envadd (struct client_state *,
 		    const char *, const char *, const char *, ...)
