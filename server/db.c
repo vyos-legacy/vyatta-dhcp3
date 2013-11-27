@@ -132,6 +132,9 @@ int write_lease (lease)
 	    ((tval = print_time(lease->ends)) == NULL ||
 	     fprintf(db_file, "\n  ends %s", tval) < 0))
 		++errors;
+ //vyatta--second attempt
+        if (lease->subnet && lease->subnet->shared_network && lease->subnet->shared_network->name)
+             fprintf(db_file, "\n#shared-network: %s", lease->subnet->shared_network->name);
 
 	if (lease->tstp &&
 	    ((tval = print_time(lease->tstp)) == NULL ||

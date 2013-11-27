@@ -39,6 +39,12 @@
 
 static void commit_leases_ackout(void *foo);
 
+//vyatta request/response output file
+FILE *fd_pckt_ct = NULL;
+static const char *dhcp_packet_count_file = "/var/log/dhcpd.status";
+long pckt_req_ct = 0;
+long pckt_resp_ct = 0;
+
 int outstanding_pings;
 
 struct leasequeue *ackqueue_head, *ackqueue_tail;
@@ -83,6 +89,31 @@ dhcp (struct packet *packet) {
 	struct lease *lease = NULL;
 	const char *errmsg;
 	struct data_string data;
+
+  //vyatta
+  if (packet &&
+      packet->packet_type == DHCPREQUEST) {
+    pckt_req_ct++;
+  }
+
+  if (fd_pckt_ct == NULL) {
+    unlink(dhcp_packet_count_file);
+    int file_pckt_ct = open (dhcp_packet_count_file, O_WRONLY | O_EXCL | O_CREAT, 0664);
+    if (file_pckt_ct < 0) {
+      log_error ("Can't create new lease file: %m");
+    } else {
+      if ((fd_pckt_ct = fdopen (file_pckt_ct, "w")) == NULL) {
+        log_error ("Can't fdopen new lease file!");
+      }
+    }
+  }
+  if (fd_pckt_ct != NULL) {
+    fseek(fd_pckt_ct, 0, SEEK_SET);
+    fprintf(fd_pckt_ct, "request-count: %d\n", pckt_req_ct);
+    fprintf(fd_pckt_ct, "response-count: %d\n", pckt_resp_ct);
+    fflush(fd_pckt_ct);
+  }
+  //vyatta
 
 	if (!locate_network(packet) &&
 	    packet->packet_type != DHCPREQUEST &&
@@ -382,6 +413,9 @@ void dhcpdiscover (packet, ms_nulltp)
 	when = cur_time + 120;
 	if (when < lease -> ends)
 		when = lease -> ends;
+//vyatta
+  pckt_resp_ct++;
+//vyatta
 
 	ack_lease (packet, lease, DHCPOFFER, when, msgbuf, ms_nulltp,
 		   (struct host_decl *)0);
