@@ -258,9 +258,14 @@ int parse_option_buffer (options, buffer, length, universe)
 				option_cache_reference(&op->next, nop, MDL);
 				option_cache_dereference(&nop, MDL);
 			} else {
-				save_option_buffer(universe, options, bp,
-						   bp->data + offset, len,
-						   code, 1);
+				if (save_option_buffer(universe, options, bp,
+						       bp->data + offset, len,
+						       code, 1) == 0) {
+					log_error("parse_option_buffer: "
+						  "save_option_buffer failed");
+					buffer_dereference(&bp, MDL);
+					return 0;
+				}
 			}
 		}
 		option_dereference(&option, MDL);
@@ -517,6 +522,8 @@ int fqdn_universe_decode (struct option_state *options,
  * Load all options into a buffer, and then split them out into the three
  * separate fields in the dhcp packet (options, file, and sname) where
  * options can be stored.
+ *
+ * returns 0 on error, length of packet on success
  */
 int
 cons_options(struct packet *inpacket, struct dhcp_packet *outpacket,
@@ -553,10 +560,10 @@ cons_options(struct packet *inpacket, struct dhcp_packet *outpacket,
 
 	if (inpacket &&
 	    (op = lookup_option(&dhcp_universe, inpacket->options,
-				 DHO_DHCP_MAX_MESSAGE_SIZE))) {
-		evaluate_option_cache(&ds, inpacket,
-				       lease, client_state, in_options,
-				       cfg_options, scope, op, MDL);
+				DHO_DHCP_MAX_MESSAGE_SIZE)) &&
+	    (evaluate_option_cache(&ds, inpacket, lease,
+				   client_state, in_options,
+				   cfg_options, scope, op, MDL) != 0)) {
 		if (ds.len >= sizeof (u_int16_t)) {
 			i = getUShort(ds.data);
 			if(!mms || (i < mms))
@@ -673,7 +680,7 @@ cons_options(struct packet *inpacket, struct dhcp_packet *outpacket,
 		 * in the packet if there is space.  Note that the option
 		 * may only be included if the client supplied one.
 		 */
-		if ((priority_len < PRIORITY_COUNT) &&
+		if ((inpacket != NULL) && (priority_len < PRIORITY_COUNT) &&
 		    (lookup_option(&fqdn_universe, inpacket->options,
 				   FQDN_ENCODED) != NULL))
 			priority_list[priority_len++] = DHO_FQDN;
@@ -689,7 +696,7 @@ cons_options(struct packet *inpacket, struct dhcp_packet *outpacket,
 		 * DHCPINFORM or DHCPLEASEQUERY responses (if the client
 		 * didn't request it).
 		 */
-		if ((priority_len < PRIORITY_COUNT) &&
+		if ((inpacket != NULL) && (priority_len < PRIORITY_COUNT) &&
 		    ((inpacket->packet_type == DHCPDISCOVER) ||
 		     (inpacket->packet_type == DHCPREQUEST)))
 			priority_list[priority_len++] = DHO_SUBNET_MASK;
@@ -1260,11 +1267,12 @@ store_options(int *ocount,
 						 cfg_options,
 						 vendor_cfg_option -> code);
 			    if (tmp)
-				evaluate_option_cache (&name, packet, lease,
-						       client_state,
-						       in_options,
-						       cfg_options,
-						       scope, tmp, MDL);
+				/* No need to check the return as we check name.len below */
+				(void) evaluate_option_cache (&name, packet, lease,
+							      client_state,
+							      in_options,
+							      cfg_options,
+							      scope, tmp, MDL);
 			} else if (vuname) {
 			    name.data = (unsigned char *)s;
 			    name.len = strlen (s);
@@ -1302,9 +1310,10 @@ store_options(int *ocount,
 	    /* Find the value of the option... */
 	    od.len = 0;
 	    if (oc) {
-		evaluate_option_cache (&od, packet,
-				       lease, client_state, in_options,
-				       cfg_options, scope, oc, MDL);
+		/* No need to check the return as we check od.len below */
+		(void) evaluate_option_cache (&od, packet,
+					      lease, client_state, in_options,
+					      cfg_options, scope, oc, MDL);
 
 		/* If we have encapsulation for this option, and an oc
 		 * lookup succeeded, but the evaluation failed, it is
@@ -3137,9 +3146,11 @@ int fqdn_option_space_encapsulate (result, packet, lease, client_state,
 		struct option_cache *oc = (struct option_cache *)(ocp -> car);
 		if (oc -> option -> code > FQDN_SUBOPTION_COUNT)
 			continue;
-		evaluate_option_cache (&results [oc -> option -> code],
-				       packet, lease, client_state, in_options,
-				       cfg_options, scope,  oc, MDL);
+		/* No need to check the return code, we check the length later */
+		(void) evaluate_option_cache (&results[oc->option->code],
+					      packet, lease, client_state,
+					      in_options, cfg_options, scope,
+					      oc, MDL);
 	}
 	/* We add a byte for the flags field.
 	 * We add two bytes for the two RCODE fields.
@@ -3304,10 +3315,10 @@ fqdn6_option_space_encapsulate(struct data_string *result,
 		oc = (struct option_cache *)(ocp->car);
 		if (oc->option->code > FQDN_SUBOPTION_COUNT)
 			log_fatal("Impossible condition at %s:%d.", MDL);
-
-		evaluate_option_cache(&results[oc->option->code], packet,
-				      lease, client_state, in_options,
-				      cfg_options, scope, oc, MDL);
+		/* No need to check the return code, we check the length later */
+		(void) evaluate_option_cache(&results[oc->option->code], packet,
+					     lease, client_state, in_options,
+					     cfg_options, scope, oc, MDL);
 	}
 
 	/* We add a byte for the flags field at the start of the option.
@@ -3743,55 +3754,51 @@ void do_packet (interface, packet, len, from_port, from, hfrom)
 #endif
 
 #if defined (TRACING)
-	trace_inpacket_stash (interface, packet, len, from_port, from, hfrom);
+	trace_inpacket_stash(interface, packet, len, from_port, from, hfrom);
 #endif
 
-	decoded_packet = (struct packet *)0;
-	if (!packet_allocate (&decoded_packet, MDL)) {
-		log_error ("do_packet: no memory for incoming packet!");
+	decoded_packet = NULL;
+	if (!packet_allocate(&decoded_packet, MDL)) {
+		log_error("do_packet: no memory for incoming packet!");
 		return;
 	}
-	decoded_packet -> raw = packet;
-	decoded_packet -> packet_length = len;
-	decoded_packet -> client_port = from_port;
-	decoded_packet -> client_addr = from;
-	interface_reference (&decoded_packet -> interface, interface, MDL);
-	decoded_packet -> haddr = hfrom;
+	decoded_packet->raw = packet;
+	decoded_packet->packet_length = len;
+	decoded_packet->client_port = from_port;
+	decoded_packet->client_addr = from;
+	interface_reference(&decoded_packet->interface, interface, MDL);
+	decoded_packet->haddr = hfrom;
 
-	if (packet -> hlen > sizeof packet -> chaddr) {
-		packet_dereference (&decoded_packet, MDL);
-		log_info ("Discarding packet with bogus hlen.");
+	if (packet->hlen > sizeof packet->chaddr) {
+		packet_dereference(&decoded_packet, MDL);
+		log_info("Discarding packet with bogus hlen.");
 		return;
 	}
 
 	/* If there's an option buffer, try to parse it. */
-	if (decoded_packet -> packet_length >= DHCP_FIXED_NON_UDP + 4) {
-		if (!parse_options (decoded_packet)) {
-			if (decoded_packet -> options)
+	if (decoded_packet->packet_length >= DHCP_FIXED_NON_UDP + 4) {
+		if (!parse_options(decoded_packet)) {
+			if (decoded_packet->options)
 				option_state_dereference
-					(&decoded_packet -> options, MDL);
+					(&decoded_packet->options, MDL);
 			packet_dereference (&decoded_packet, MDL);
 			return;
 		}
 
-		if (decoded_packet -> options_valid &&
-		    (op = lookup_option (&dhcp_universe,
-					 decoded_packet -> options, 
-					 DHO_DHCP_MESSAGE_TYPE))) {
+		if (decoded_packet->options_valid &&
+		    (op = lookup_option(&dhcp_universe,
+					decoded_packet->options, 
+					DHO_DHCP_MESSAGE_TYPE))) {
 			struct data_string dp;
-			memset (&dp, 0, sizeof dp);
-			evaluate_option_cache (&dp, decoded_packet,
-					       (struct lease *)0,
-					       (struct client_state *)0,
-					       decoded_packet -> options,
-					       (struct option_state *)0,
-					       (struct binding_scope **)0,
-					       op, MDL);
+			memset(&dp, 0, sizeof dp);
+			evaluate_option_cache(&dp, decoded_packet, NULL, NULL,
+					      decoded_packet->options, NULL,
+					      NULL, op, MDL);
 			if (dp.len > 0)
-				decoded_packet -> packet_type = dp.data [0];
+				decoded_packet->packet_type = dp.data[0];
 			else
-				decoded_packet -> packet_type = 0;
-			data_string_forget (&dp, MDL);
+				decoded_packet->packet_type = 0;
+			data_string_forget(&dp, MDL);
 		}
 	}
 
@@ -3803,19 +3810,17 @@ void do_packet (interface, packet, len, from_port, from, hfrom)
 	}
 
 	/* If the caller kept the packet, they'll have upped the refcnt. */
-	packet_dereference (&decoded_packet, MDL);
+	packet_dereference(&decoded_packet, MDL);
 
 #if defined (DEBUG_MEMORY_LEAKAGE)
-	log_info ("generation %ld: %ld new, %ld outstanding, %ld long-term",
-		  dmalloc_generation,
-		  dmalloc_outstanding - previous_outstanding,
-		  dmalloc_outstanding, dmalloc_longterm);
-#endif
-#if defined (DEBUG_MEMORY_LEAKAGE)
-	dmalloc_dump_outstanding ();
+	log_info("generation %ld: %ld new, %ld outstanding, %ld long-term",
+		 dmalloc_generation,
+		 dmalloc_outstanding - previous_outstanding,
+		 dmalloc_outstanding, dmalloc_longterm);
+	dmalloc_dump_outstanding();
 #endif
 #if defined (DEBUG_RC_HISTORY_EXHAUSTIVELY)
-	dump_rc_history (0);
+	dump_rc_history(0);
 #endif
 }
 
@@ -3849,6 +3854,9 @@ do_packet6(struct interface_info *interface, const char *packet,
 	const struct dhcpv6_packet *msg;
 	const struct dhcpv6_relay_packet *relay; 
 	struct packet *decoded_packet;
+#if defined (DEBUG_MEMORY_LEAKAGE)
+	unsigned long previous_outstanding = dmalloc_outstanding;
+#endif
 
 	if (!packet6_len_okay(packet, len)) {
 		log_info("do_packet6: "
@@ -3876,8 +3884,8 @@ do_packet6(struct interface_info *interface, const char *packet,
 	/* decoded_packet->circuit_id_len = 0; */
 	/* decoded_packet->remote_id = NULL; */
 	/* decoded_packet->remote_id_len = 0; */
-	decoded_packet->raw = (struct dhcp_packet *) packet;
-	decoded_packet->packet_length = (unsigned) len;
+	decoded_packet->raw = (struct dhcp_packet *)packet;
+	decoded_packet->packet_length = (unsigned)len;
 	decoded_packet->client_port = from_port;
 	decoded_packet->client_addr = *from;
 	interface_reference(&decoded_packet->interface, interface, MDL);
@@ -3929,6 +3937,17 @@ do_packet6(struct interface_info *interface, const char *packet,
 	dhcpv6(decoded_packet);
 
 	packet_dereference(&decoded_packet, MDL);
+
+#if defined (DEBUG_MEMORY_LEAKAGE)
+	log_info("generation %ld: %ld new, %ld outstanding, %ld long-term",
+		 dmalloc_generation,
+		 dmalloc_outstanding - previous_outstanding,
+		 dmalloc_outstanding, dmalloc_longterm);
+	dmalloc_dump_outstanding();
+#endif
+#if defined (DEBUG_RC_HISTORY_EXHAUSTIVELY)
+	dump_rc_history(0);
+#endif
 }
 #endif /* DHCPv6 */
 

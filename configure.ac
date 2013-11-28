@@ -1,4 +1,4 @@
-AC_INIT([DHCP], [4.1-ESV-R7], [dhcp-users@isc.org])
+AC_INIT([DHCP], [4.1-ESV-R8], [dhcp-users@isc.org])
 
 # we specify "foreign" to avoid having to have the GNU mandated files,
 # like AUTHORS, COPYING, and such
@@ -167,6 +167,17 @@ AC_ARG_ENABLE(use_sockets,
 if test "$enable_use_sockets" = "yes"; then
 	AC_DEFINE([USE_SOCKETS], [1],
 		[Define to 1 to use the standard BSD socket API.])
+fi
+
+# Try to hnadle incorrect byte order for secs field
+# This is off by default
+AC_ARG_ENABLE(secs_byteorder,
+	AC_HELP_STRING([--enable-secs-byteorder],
+		[Correct bad byteorders in the secs field (default is no).]))
+
+if test "$enable_secs_byteorder" = "yes" ; then
+	AC_DEFINE([SECS_BYTEORDER], [1],
+		[Define to correct bad byteorders in secs field.])
 fi
 
 # Testing section

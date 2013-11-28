@@ -3,7 +3,7 @@
    DHCP Client. */
 
 /*
- * Copyright (c) 2004-2012 by Internet Systems Consortium, Inc. ("ISC")
+ * Copyright (c) 2004-2013 by Internet Systems Consortium, Inc. ("ISC")
  * Copyright (c) 1995-2003 by Internet Software Consortium
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -66,7 +66,7 @@ struct data_string default_duid;
 #define ASSERT_STATE(state_is, state_shouldbe) {}
 
 static const char copyright[] = 
-"Copyright 2004-2012 Internet Systems Consortium.";
+"Copyright 2004-2013 Internet Systems Consortium.";
 static const char arr [] = "All rights reserved.";
 static const char message [] = "Internet Systems Consortium DHCP Client";
 static const char url [] = 
@@ -1190,6 +1190,7 @@ void bind_lease (client)
 	if (client -> active && client -> state != S_REBOOTING)
 		script_write_params (client, "old_", client -> active);
 	script_write_params (client, "new_", client -> new);
+	script_write_requested(client);
 	if (client -> alias)
 		script_write_params (client, "alias_", client -> alias);
 
@@ -1295,6 +1296,7 @@ void state_stop (cpp)
 	if (client->active) {
 		script_init(client, "STOP", client->active->medium);
 		script_write_params(client, "old_", client->active);
+		script_write_requested(client);
 		if (client->alias)
 			script_write_params(client, "alias_", client->alias);
 		script_go(client);
@@ -1769,6 +1771,7 @@ void dhcpnak (packet)
 	 */
 	script_init(client, "EXPIRE", NULL);
 	script_write_params(client, "old_", client->active);
+	script_write_requested(client);
 	if (client->alias)
 		script_write_params(client, "alias_", client->alias);
 	script_go(client);
@@ -1937,6 +1940,7 @@ void state_panic (cpp)
 			script_init (client, "TIMEOUT",
 				     client -> active -> medium);
 			script_write_params (client, "new_", client -> active);
+			script_write_requested(client);
 			if (client -> alias)
 				script_write_params (client, "alias_",
 						     client -> alias);
@@ -2075,6 +2079,7 @@ void send_request (cpp)
 		/* Run the client script with the new parameters. */
 		script_init (client, "EXPIRE", (struct string_list *)0);
 		script_write_params (client, "old_", client -> active);
+		script_write_requested(client);
 		if (client -> alias)
 			script_write_params (client, "alias_",
 					     client -> alias);
@@ -3250,6 +3255,31 @@ void script_write_params (client, prefix, lease)
 	client_envadd (client, prefix, "expiry", "%d", (int)(lease -> expiry));
 }
 
+/*
+ * Write out the environment variables for the objects that the
+ * client requested.  If the object was requested the variable will be:
+ * requested_<option_name>=1
+ * If it wasn't requested there won't be a variable.
+ */
+void script_write_requested(client)
+	struct client_state *client;
+{
+	int i;
+	struct option **req;
+	char name[256];
+	req = client->config->requested_options;
+
+	if (req == NULL)
+		return;
+
+	for (i = 0 ; req[i] != NULL ; i++) {
+		if ((req[i]->universe == &dhcp_universe) &&
+		    dhcp_option_ev_name(name, sizeof(name), req[i])) {
+			client_envadd(client, "requested_", name, "%d", 1);
+		}
+	}
+}
+
 int script_go (client)
 	struct client_state *client;
 {
@@ -3557,6 +3587,7 @@ void do_release(client)
 			script_write_params (client, "alias_",
 					     client -> alias);
 		script_write_params (client, "old_", client -> active);
+		script_write_requested(client);
 		script_go (client);
 	}
 

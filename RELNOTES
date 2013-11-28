@@ -1,15 +1,16 @@
 	      Internet Systems Consortium DHCP Distribution
-			    Version 4.1-ESV-R7
-			     10 September 2012
+			     Version 4.1-ESV-R8
+			       8 January 2013
 
 			      Release Notes
 
 			      NEW FEATURES
 
-Version 4.1-ESV-R7 is a security release of an extended support version (ESV)
-release.  ESVs are intended for users who have longer upgrade constraints.
-Please see our web page http://www.isc.org/downloads/extended-support for
-more information on ESVs.
+Version 4.1-ESV-R8b1 is a maintenance release of an extended support version
+(ESV) release.  ESVs are intended for users who have longer upgrade
+constraints.  Please see our web page
+http://www.isc.org/downloads/extended-support
+for more information on ESVs.
 
 ISC DHCP 4.1.x includes several new DHCPv6 features that were not included
 in DHCP 4.0.x.  These include:
@@ -51,6 +52,77 @@ output of "./configure --help" to see what options are available.
 The system has only been tested on Linux, FreeBSD, and Solaris, and may not
 work on other platforms. Please report any problems and suggested fixes to
 <dhcp-users@isc.org>.
+
+			Changes since 4.1-ESV-R8rc1
+
+- None
+
+			Changes since 4.1-ESV-R8b1
+
+- Modify test makefiles to be more similar to standard makefiles
+  and comment out a currently unused test.
+  [ISC-Bugs #32089]
+
+			Changes since 4.1-ESV-R7
+
+- Update the memory leakage debug code to work with v6.
+  [ISC-Bugs #30297]
+
+- Modify the failover code to handle incorrect peer names
+  better.  Previously the structure holding the name might
+  have been freed inappropriately in some cases and not
+  freed in other cases.
+  [ISC-Bugs #30320]
+
+- Add a configue option, enable-secs-byteorder, to deal with
+  clients that do the byte ordering on the secs field incorrectly.
+  This field should be in network byte order but some clients
+  get it wrong.  When this option is enabled the server will examine
+  the secs field and if it looks wrong (high byte non zero and low
+  byte zero) swap the bytes.  The default is disabled.  This option
+  is only useful when doing load balancing within failover.
+  [ISC-Bugs #26108]
+
+- Fix a set of issues that were discovered via a code inspection
+  tool.  Thanks to Jiri Popelka and Tomas Hozza Red Hat for the logs
+  and patches.
+  [ISC-Bugs #23833]
+
+- Parsing unquoted base64 strings improved. Parser now properly handles 
+  strings that contain reserved names. [ISC-Bugs #23048]
+
+- Modify the nak_lease function to make some attempts to find a
+  server-identifier option to use for the NAK.  This feature is
+  enabled by defining SERVER_ID_FOR_NAK in includes/site.h and
+  currently defaults to disabled.
+  [ISC-Bugs #25689]
+
+- The client now passes information about the options it requested
+  from the server to the script code via environment variables.
+  These variables are of the form requested_<option_name>=1 with
+  the option name being the same as used in the new_* and old_*
+  variables.
+  [ISC-Bugs #29068]
+
+- Add support for a simple check that the server id in a request message
+  to a failover peer matches the server id of the server.  This support
+  is enabled by editing the file includes/site.h and uncommenting the
+  definition for SERVER_ID_CHECK.  The option has several restrictions
+  and issues - please read the comment in the site.h file before
+  enabling it.
+  [ISC-Bugs #31463]
+
+- Tidy up some compiler issues in the debug code.
+  [ISC-Bugs #26460]
+
+- Move the dhcpd.conf exmample file to dhcpd.conf.example to avoid
+  overwriting the dhcpd.conf file when installing a new version of
+  ISC DHCP.  The user will now need to manual copy and edit the
+  dhcpd.conf file as desired.
+  [ISC-Bugs #19337]
+
+- Remove an unused variable to keep compilers happy.
+  [ISC-Bugs #31983]
 
 			Changes since 4.1-ESV-R6
 
