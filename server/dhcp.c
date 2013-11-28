@@ -109,8 +109,8 @@ dhcp (struct packet *packet) {
   }
   if (fd_pckt_ct != NULL) {
     fseek(fd_pckt_ct, 0, SEEK_SET);
-    fprintf(fd_pckt_ct, "request-count: %d\n", pckt_req_ct);
-    fprintf(fd_pckt_ct, "response-count: %d\n", pckt_resp_ct);
+    fprintf(fd_pckt_ct, "request-count: %ld\n", pckt_req_ct);
+    fprintf(fd_pckt_ct, "response-count: %ld\n", pckt_resp_ct);
     fflush(fd_pckt_ct);
   }
   //vyatta
