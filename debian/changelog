@@ -1,3 +1,16 @@
+vyatta-dhcp3 (4.1.8+hydrogen3) unstable; urgency=low
+
+  [ Mihail Vasiliev ]
+  * Update to ISC DHCP 4.1-ESV-R8
+  * Vyatta-marked edits re-added.
+  * Versioning and maintainers fixup.
+  * Last changes by vyatta.
+  * Fix printing of long as int.
+
+  [ Daniil Baturin ]
+
+ -- Daniil Baturin <daniil@baturin.org>  Thu, 28 Nov 2013 16:41:54 +0100
+
 vyatta-dhcp3 (4.1.8+hydrogen2) unstable; urgency=low
 
   * ISC DHCP version 4.1-ESV-R8
