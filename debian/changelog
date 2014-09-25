@@ -1,3 +1,9 @@
+vyatta-dhcp3 (4.1.8+vyos1+helium2) unstable; urgency=low
+
+  * Replace bash with vbash in client script.
+
+ -- Daniil Baturin <daniil@baturin.org>  Fri, 26 Sep 2014 01:06:11 +0200
+
 vyatta-dhcp3 (4.1.8+vyos1+helium1) unstable; urgency=low
 
   * New branch
