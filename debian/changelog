@@ -1,4 +1,4 @@
-yatta-dhcp3 (4.1.8+vyos2+lithium3) unstable; urgency=low
+vyatta-dhcp3 (4.1.8+vyos2+lithium3) unstable; urgency=low
 
   [ Alex Harpin ]
   * vyatta-dhcp3: call make_resolv_conf after the ip address is active
