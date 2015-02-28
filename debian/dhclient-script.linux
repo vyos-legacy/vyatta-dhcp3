@@ -220,9 +220,9 @@ case "$reason" in
     BOUND|RENEW|REBIND|REBOOT)
         set_hostname
 
-	make_resolv_conf
 	set_address
 	update_routers
+	make_resolv_conf
 
         exit_with_hooks 0
         ;;
