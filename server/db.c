@@ -584,6 +584,11 @@ write_ia(const struct ia_xx *ia) {
 			    binding_state) < 0) {
 			goto error_exit;
 		}
+		if (iasubopt->ipv6_pool && iasubopt->ipv6_pool->shared_network &&
+			    iasubopt->ipv6_pool->shared_network->name) {
+			fprintf(db_file, "#shared-network: %s\n", 
+			    iasubopt->ipv6_pool->shared_network->name);
+		}
 		if (fprintf(db_file, "    preferred-life %u;\n",
 			    (unsigned)iasubopt->prefer) < 0) {
 			goto error_exit;
