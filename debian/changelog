@@ -1,3 +1,10 @@
+vyatta-dhcp3 (4.1.8+vyos2+lithium4) unstable; urgency=low
+
+  [ Dominik Malis ]
+  * Bug 520 - Feature request: Show DUID of DHCPv6 client request in log
+
+ -- Alex Harpin <development@landsofshadow.co.uk>  Sat, 13 Jun 2015 10:38:50 +0100
+ 
 vyatta-dhcp3 (4.1.8+vyos2+lithium3) unstable; urgency=low
 
   [ Alex Harpin ]
