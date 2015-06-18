@@ -1,3 +1,9 @@
+vyatta-dhcp3 (4.1.8+vyos2+lithium5) unstable; urgency=low
+
+  * vyatta-dhcp3: update dh_gencontrol with new development build flag
+
+ -- Alex Harpin <development@landsofshadow.co.uk>  Thu, 18 Jun 2015 20:37:38 +0100
+ 
 vyatta-dhcp3 (4.1.8+vyos2+lithium4) unstable; urgency=low
 
   [ Dominik Malis ]
