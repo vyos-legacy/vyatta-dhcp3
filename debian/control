@@ -14,6 +14,7 @@ Depends: debianutils (>= 2.8.2),
  ${shlibs:Depends},
  ${misc:Depends}
 Conflicts: dhcp, dhcp3-server
+Provides: isc-dhcp-server
 Description: Vyattanized DHCP server for automatic IP address assignment
  This is the server from version 3 of the Internet Software
  Consortium's implementation of DHCP. For more information, visit
@@ -33,6 +34,7 @@ Depends: debianutils (>= 2.8.2),
  ${shlibs:Depends},
  ${misc:Depends}
 Conflicts: dhcp3-common
+Provides: isc-dhcp-common
 Description: Vyattanized common files used by all the vyatta-dhcp3* packages
  This package contains the files used by all the packages from the
  Vyattanized ISC DHCP version 3.
@@ -45,6 +47,7 @@ Depends: debianutils (>= 2.8.2),
  ${misc:Depends}
 Suggests: resolvconf, avahi-autoipd
 Conflicts: dhcp-client (<< 3.0), samba-common (<< 3.0.0beta1-2), dhcp3-client
+Provides: isc-dhcp-client
 Description: Vyattanized DHCP client
  This is the client from version 3 of the Internet Software
  Consortium's implementation of DHCP. For more information visit
@@ -68,6 +71,7 @@ Depends: debianutils (>= 2.8.2),
  ${shlibs:Depends},
  ${misc:Depends}
 Conflicts: dhcp-relay, dhcp3-relay
+Provides: isc-dhcp-relay
 Description: Vyattanized DHCP relay daemon
  This is the relay from version 3 of the Internet Software
  Consortium's implementation of DHCP. For more information visit
