@@ -1,3 +1,12 @@
+vyatta-dhcp3 (4.1.8+vyos2+current1) unstable; urgency=medium
+
+  [ Thomas Jepp ]
+  * Add Provides to vyatta-dhcp3 to stop it conflicting with isc-dhcp packages.
+
+  [ Kim Hagen ]
+
+ -- Kim Hagen <kim.sidney@gmail.com>  Sun, 24 Jan 2016 15:10:49 -0500
+
 vyatta-dhcp3 (4.1.8+vyos2+lithium5) unstable; urgency=low
 
   * vyatta-dhcp3: update dh_gencontrol with new development build flag
